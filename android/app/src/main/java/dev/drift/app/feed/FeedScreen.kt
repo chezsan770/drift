@@ -89,12 +89,26 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.withFrameNanos
 import kotlin.math.abs
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 
-private val sortLabels = listOf(
-    Sort.HOT to "Hot", Sort.NEW to "New", Sort.RISING to "Rising",
-    Sort.TOP_DAY to "Top · today", Sort.TOP_WEEK to "Top · week", Sort.TOP_MONTH to "Top · month",
-    Sort.TOP_YEAR to "Top · year", Sort.TOP_ALL to "Top · all time",
+private val mainSorts = listOf(Sort.HOT to "Hot", Sort.NEW to "New", Sort.RISING to "Rising")
+private val topSorts = listOf(
+    Sort.TOP_DAY to "Today", Sort.TOP_WEEK to "This week", Sort.TOP_MONTH to "This month",
+    Sort.TOP_YEAR to "This year", Sort.TOP_ALL to "All time",
 )
+
+/** Short label for the sort button, e.g. "Hot", "Top · year". */
+private fun Sort.label(): String = when (this) {
+    Sort.HOT -> "Hot"
+    Sort.NEW -> "New"
+    Sort.RISING -> "Rising"
+    Sort.TOP_DAY -> "Top · today"
+    Sort.TOP_WEEK -> "Top · week"
+    Sort.TOP_MONTH -> "Top · month"
+    Sort.TOP_YEAR -> "Top · year"
+    Sort.TOP_ALL -> "Top · all time"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -276,21 +290,30 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
                         )
                     }
                     Box {
-                        TextButton(onClick = { sortMenu = true }) {
+                        // A tinted chip with ▾ so it reads as a control.
+                        TextButton(
+                            onClick = { sortMenu = true },
+                            shape = RoundedCornerShape(50),
+                            colors = ButtonDefaults.textButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        ) {
                             Text(
-                                sortLabels.first { it.first == state.sort }.second,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                "${state.sort.label()}  ▾",
+                                color = MaterialTheme.colorScheme.onBackground,
                                 style = MaterialTheme.typography.labelLarge,
                             )
                         }
                         DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                            sortLabels.forEach { (sort, label) ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(label, fontWeight = if (sort == state.sort) FontWeight.SemiBold else null)
-                                    },
-                                    onClick = { sortMenu = false; vm.setSort(sort) },
-                                )
+                            SortMenuHeader("Sort by")
+                            mainSorts.forEach { (sort, label) ->
+                                SortMenuItem(label, sort == state.sort) { sortMenu = false; vm.setSort(sort) }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            SortMenuHeader("Top")
+                            topSorts.forEach { (sort, label) ->
+                                SortMenuItem(label, sort == state.sort) { sortMenu = false; vm.setSort(sort) }
                             }
                         }
                     }
@@ -373,6 +396,29 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
             onDismiss = { actionsFor = null },
         )
     }
+}
+
+@Composable
+private fun SortMenuHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun SortMenuItem(label: String, selected: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                if (selected) "✓  $label" else "     $label",
+                fontWeight = if (selected) FontWeight.SemiBold else null,
+            )
+        },
+        onClick = onClick,
+    )
 }
 
 private const val KIND_VIDEO = 3
