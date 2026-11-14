@@ -247,7 +247,7 @@ async fn generic(api: &Api, url: &str) -> Result<Resolved, CoreError> {
     }
     let ctype = content_type(resp.headers());
     if ctype.starts_with("image/") {
-        return Ok(Resolved::bare(Media::Image { url: final_url, width: 0, height: 0, preview: None }));
+        return Ok(Resolved::bare(Media::Image { url: final_url, width: 0, height: 0, preview: None, thumbnail: None }));
     }
     if ctype.starts_with("video/") || ctype.contains("mpegurl") || ctype.contains("dash+xml") {
         let (hls, dash) = (ctype.contains("mpegurl"), ctype.contains("dash+xml"));
@@ -294,7 +294,7 @@ pub(crate) fn from_html(url: &str, html: &str) -> Resolved {
         let (w, h) = (dim(&["og:image:width"]), dim(&["og:image:height"]));
         let image_page = media::looks_like_image_host(url) || og_type.contains("image") || og_type.contains("photo");
         if image_page {
-            return Resolved { media: Media::Image { url: img, width: w, height: h, preview: None }, title };
+            return Resolved { media: Media::Image { url: img, width: w, height: h, preview: None, thumbnail: None }, title };
         }
     }
     Resolved { media: Media::Link { url: url.to_string(), thumbnail: image }, title }

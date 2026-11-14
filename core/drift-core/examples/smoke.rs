@@ -10,6 +10,7 @@ async fn main() {
         client_id: std::env::var("REDDIT_CLIENT_ID").ok(),
         user_agent: "android:dev.drift.app:v0.1.0 (dev smoke test)".into(),
         device_id: "DO_NOT_TRACK_THIS_DEVICE".into(),
+        cache_dir: None,
     });
 
     let t = std::time::Instant::now();

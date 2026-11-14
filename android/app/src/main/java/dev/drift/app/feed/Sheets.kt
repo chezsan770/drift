@@ -37,7 +37,13 @@ import dev.drift.core.Post
 /** Long-press menu: the actions that are not worth a button on every card. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PostActionsSheet(post: Post, onOpenUrl: (String) -> Unit, onHide: () -> Unit, onDismiss: () -> Unit) {
+fun PostActionsSheet(
+    post: Post,
+    onOpenUrl: (String) -> Unit,
+    onSave: (() -> Unit)?,
+    onHide: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
@@ -58,6 +64,7 @@ fun PostActionsSheet(post: Post, onOpenUrl: (String) -> Unit, onHide: () -> Unit
                 )
                 onDismiss()
             }
+            if (onSave != null) SheetRow("Save to gallery") { onSave(); onDismiss() }
             if (post.url.isNotEmpty()) SheetRow("Open link in browser") { onOpenUrl(post.url); onDismiss() }
             if (isRedditPost) SheetRow("Open on Reddit") { onOpenUrl(post.permalink); onDismiss() }
             SheetRow("Copy link") {

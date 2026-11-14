@@ -4,7 +4,9 @@
 uniffi::setup_scaffolding!();
 
 mod api;
+mod cache;
 mod demo;
+mod download;
 mod error;
 pub mod prefetch;
 mod format;
@@ -25,6 +27,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct DriftCore {
     api: api::Api,
     history: Mutex<random::History>,
+    cache: cache::FeedCache,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -32,9 +35,25 @@ impl DriftCore {
     #[uniffi::constructor]
     pub fn new(config: CoreConfig) -> Arc<Self> {
         Arc::new(Self {
+            cache: cache::FeedCache::new(config.cache_dir.as_deref()),
             api: api::Api::new(config),
             history: Mutex::new(random::History::new(30)),
         })
+    }
+
+    /// Last saved first page for a feed (e.g. "r/pics|Hot"), if any.
+    pub fn cached_feed(&self, key: String) -> Option<FeedPage> {
+        self.cache.load(&key)
+    }
+
+    /// Save a feed's first page so the next launch can show it instantly.
+    pub fn save_feed(&self, key: String, page: FeedPage) {
+        self.cache.save(&key, &page);
+    }
+
+    /// Download `url` to the local file `dest_path` (streamed, size-capped).
+    pub async fn download(&self, url: String, dest_path: String) -> Result<Download, CoreError> {
+        download::to_file(self.api.http(), &url, &dest_path).await
     }
 
     /// One page of a subreddit (`"pics"`, or `""` for the front page).

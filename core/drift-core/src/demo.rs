@@ -38,7 +38,7 @@ fn card(p: Photo) -> String {
 
 fn image(p: Photo) -> Media {
     let (url, width, height) = full(p);
-    Media::Image { url, width, height, preview: Some(card(p)) }
+    Media::Image { url, width, height, preview: Some(card(p)), thumbnail: None }
 }
 
 fn post(i: usize, title: &str, score: i64, age_secs: f64, now: f64, media: Media) -> Post {

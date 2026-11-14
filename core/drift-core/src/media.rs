@@ -85,6 +85,7 @@ pub fn from_post(p: &RawPost) -> Media {
                 width: img.source.width,
                 height: img.source.height,
                 preview: card_preview,
+                thumbnail: None,
             };
         }
     }
@@ -223,6 +224,7 @@ pub fn classify_url(raw: &str, preview: Option<&PreviewImage>) -> Option<Media> 
                 width: w,
                 height: h,
                 preview: card_preview,
+                thumbnail: None,
             });
         }
     }
@@ -233,12 +235,14 @@ pub fn classify_url(raw: &str, preview: Option<&PreviewImage>) -> Option<Media> 
             width: w,
             height: h,
             preview: card_preview,
+                thumbnail: None,
         }),
         Some("gif") => Some(Media::Image {
             url: raw.to_string(),
             width: w,
             height: h,
             preview: card_preview,
+                thumbnail: None,
         }),
         Some(e) if VIDEO_EXT.contains(&e) => Some(Media::Video {
             hls_url: None,

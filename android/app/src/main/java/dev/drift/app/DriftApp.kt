@@ -28,6 +28,7 @@ class DriftApp : Application(), SingletonImageLoader.Factory {
                     if (BuildConfig.REDDIT_USERNAME.isNotBlank()) append(" (by /u/${BuildConfig.REDDIT_USERNAME})")
                 },
                 deviceId = deviceId(),
+                cacheDir = cacheDir.path,
             )
         )
     }

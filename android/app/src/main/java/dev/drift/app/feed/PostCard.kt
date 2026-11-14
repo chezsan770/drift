@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import dev.drift.app.media.FeedPlayer
 import dev.drift.app.settings.Layout
 import dev.drift.core.Media
+import dev.drift.core.cardImage
 import dev.drift.core.Post
 
 private val Side = 16.dp
@@ -148,21 +149,25 @@ private fun CardMedia(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer
     val hold = { cb.onLongPress(post) }
     val blurMod = if (blur != null) Modifier.blur(40.dp) else Modifier
     when (val media = post.media) {
-        // Size unknown up front (RSS feeds, links): the card takes its shape
-        // from the image once loaded. With "Highest" quality the original
-        // loads, showing the small preview until it arrives.
-        is Media.Image if media.width == 0u || media.height == 0u -> {
-            var ratio by remember(media.url) { mutableStateOf<Float?>(null) }
-            val placeholder = media.preview?.takeIf { highQuality }?.let { rememberAsyncImagePainter(it) }
+        // Which file the card shows is decided in Rust (cardImage), shared
+        // with the prefetcher. The low-res thumbnail (RSS) is a placeholder.
+        // When the size isn't known up front, the card takes its shape from
+        // the image once loaded.
+        is Media.Image -> {
+            val known = media.width > 0u && media.height > 0u
+            var loadedRatio by remember(media.url) { mutableStateOf<Float?>(null) }
+            val ratio = if (known) media.width.toFloat() / media.height.toFloat() else loadedRatio
+            val model = remember(media, highQuality) { cardImage(media.url, media.preview, media.thumbnail, highQuality) }
+            val placeholder = media.thumbnail?.takeIf { it != model }?.let { rememberAsyncImagePainter(it) }
             MediaFrame(ratio) {
                 AsyncImage(
-                    model = if (highQuality) media.url else media.preview ?: media.url,
+                    model = model,
                     contentDescription = null,
                     placeholder = placeholder,
                     contentScale = if (ratio != null) ContentScale.Crop else ContentScale.Fit,
                     onSuccess = { s: AsyncImagePainter.State.Success ->
                         val size = s.painter.intrinsicSize
-                        if (size.width > 0f && size.height > 0f) ratio = size.width / size.height
+                        if (!known && size.width > 0f && size.height > 0f) loadedRatio = size.width / size.height
                     },
                     modifier = Modifier.fillMaxSize().then(blurMod)
                         .tapAndHold(onTap = primaryTap(post, blur, cb), onHold = hold),
@@ -180,19 +185,6 @@ private fun CardMedia(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = Side).padding(top = 6.dp).then(blurMod),
             )
-        }
-
-        is Media.Image -> MediaFrame(media.width, media.height) {
-            val knownSize = media.width > 0u && media.height > 0u
-            AsyncImage(
-                model = media.preview ?: media.url,
-                contentDescription = null,
-                // Unknown size (links): show the whole image, never crop it.
-                contentScale = if (knownSize) ContentScale.Crop else ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().then(blurMod)
-                    .tapAndHold(onTap = primaryTap(post, blur, cb), onHold = hold),
-            )
-            BlurLabel(blur)
         }
 
         is Media.Gallery -> {
@@ -370,7 +362,7 @@ private fun LinkRow(url: String, thumbnail: String?, label: String?, onOpen: () 
 // --------------------------------------------------------------- compact
 
 private fun Media.thumbnailUrl(): String? = when (this) {
-    is Media.Image -> preview ?: url
+    is Media.Image -> thumbnail ?: preview ?: url
     is Media.Gallery -> items.firstOrNull { !it.isAnimated }?.let { it.preview ?: it.url }
     is Media.Video -> preview
     is Media.Gif -> preview

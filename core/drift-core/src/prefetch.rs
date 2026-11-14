@@ -19,10 +19,11 @@ pub fn window(items_per_sec: f32) -> usize {
 /// or the prefetched bytes are never reused).
 pub fn card_urls(media: &Media, high_quality: bool) -> Vec<String> {
     match media {
-        // Unknown size (RSS, links) + highest quality: the card loads the
-        // original, with the small preview only as a placeholder.
-        Media::Image { url, preview, width: 0, .. } if high_quality || preview.is_none() => vec![url.clone()],
-        Media::Image { url, preview, .. } => vec![preview.clone().unwrap_or_else(|| url.clone())],
+        // Must mirror the card: preview if there is one; otherwise the
+        // original, or the low-res thumbnail on data saver.
+        Media::Image { url, preview, thumbnail, .. } => {
+            vec![card_image(url.clone(), preview.clone(), thumbnail.clone(), high_quality)]
+        }
         Media::Gallery { items } => items
             .iter()
             .filter(|i| !i.is_animated)
@@ -32,6 +33,17 @@ pub fn card_urls(media: &Media, high_quality: bool) -> Vec<String> {
         Media::Video { preview, .. } | Media::Gif { preview, .. } => preview.iter().cloned().collect(),
         Media::Embed { thumbnail, .. } | Media::Link { thumbnail, .. } => thumbnail.iter().cloned().collect(),
         Media::Text { .. } => vec![],
+    }
+}
+
+/// Which URL an image card shows. Exported so Kotlin and the prefetcher
+/// always agree (a mismatch would download images that are never shown).
+#[uniffi::export]
+pub fn card_image(url: String, preview: Option<String>, thumbnail: Option<String>, high_quality: bool) -> String {
+    match (preview, thumbnail) {
+        (Some(p), _) => p,
+        (None, Some(t)) if !high_quality => t,
+        _ => url,
     }
 }
 
@@ -73,7 +85,7 @@ mod tests {
     }
 
     fn img(n: u32) -> Media {
-        Media::Image { url: format!("full{n}"), width: 1, height: 1, preview: Some(format!("card{n}")) }
+        Media::Image { url: format!("full{n}"), width: 1, height: 1, preview: Some(format!("card{n}")), thumbnail: None }
     }
 
     #[test]
@@ -94,9 +106,12 @@ mod tests {
 
     #[test]
     fn unknown_size_follows_quality() {
-        let rss = Media::Image { url: "orig".into(), width: 0, height: 0, preview: Some("thumb".into()) };
+        let rss = Media::Image { url: "orig".into(), width: 0, height: 0, preview: None, thumbnail: Some("thumb".into()) };
         assert_eq!(prefetch_urls(vec![post(rss.clone())], 0.0, true), vec!["orig"]);
         assert_eq!(prefetch_urls(vec![post(rss)], 0.0, false), vec!["thumb"]);
+        // A proper card preview always wins.
+        assert_eq!(card_image("o".into(), Some("p".into()), Some("t".into()), false), "p");
+        assert_eq!(card_image("o".into(), None, None, false), "o");
     }
 
     #[test]

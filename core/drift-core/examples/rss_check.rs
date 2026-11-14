@@ -11,6 +11,7 @@ async fn main() {
         client_id: None,
         user_agent: "android:dev.drift.app:v0.1.0 (rss check)".into(),
         device_id: "DO_NOT_TRACK_THIS_DEVICE".into(),
+        cache_dir: None,
     });
     println!("limited mode: {}", core.is_limited_mode());
     let t = std::time::Instant::now();

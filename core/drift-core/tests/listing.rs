@@ -31,6 +31,7 @@ fn image_uses_original_and_card_preview() {
             width: 4000,
             height: 3000,
             preview: Some("https://preview.redd.it/fog.jpeg?width=1080&s=2".into()),
+            thumbnail: None,
         }
     );
 }

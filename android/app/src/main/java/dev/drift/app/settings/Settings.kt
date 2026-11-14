@@ -80,10 +80,20 @@ class SettingsStore(context: Context) {
 
     fun isHidden(postId: String): Boolean = postId in hidden
 
+    private val _hiddenCount = MutableStateFlow(hidden.size)
+    val hiddenCount: StateFlow<Int> = _hiddenCount.asStateFlow()
+
     fun hide(postId: String) {
         hidden.add(postId)
         while (hidden.size > MAX_HIDDEN) hidden.remove(hidden.first())
         prefs.edit().putString(KEY_HIDDEN, hidden.joinToString("\n")).apply()
+        _hiddenCount.value = hidden.size
+    }
+
+    fun unhideAll() {
+        hidden.clear()
+        prefs.edit().remove(KEY_HIDDEN).apply()
+        _hiddenCount.value = 0
     }
 
     private fun load() = AppSettings(

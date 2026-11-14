@@ -45,7 +45,7 @@ fn parse_entry(e: &str, now_utc: f64) -> Option<Post> {
     let media = if is_self {
         Media::Text { body: self_text(&html) }
     } else {
-        media_for(&link, thumbnail)
+        with_size_from_title(media_for(&link, thumbnail), &title)
     };
     let domain = url::Url::parse(&link)
         .ok()
@@ -74,8 +74,9 @@ fn parse_entry(e: &str, now_utc: f64) -> Option<Post> {
 /// Media for a post's link, using the RSS thumbnail as the feed preview.
 fn media_for(link: &str, thumbnail: Option<String>) -> Media {
     match classify_url(link, None) {
-        Some(Media::Image { url, width, height, preview }) => {
-            Media::Image { url, width, height, preview: preview.or(thumbnail) }
+        // The RSS thumbnail is only 640px: a placeholder, not the card image.
+        Some(Media::Image { url, width, height, preview, thumbnail: t }) => {
+            Media::Image { url, width, height, preview, thumbnail: t.or(thumbnail) }
         }
         Some(Media::Video { hls_url, dash_url, mp4_url, width, height, has_audio, preview }) => {
             Media::Video { hls_url, dash_url, mp4_url, width, height, has_audio, preview: preview.or(thumbnail) }
@@ -88,6 +89,42 @@ fn media_for(link: &str, thumbnail: Option<String>) -> Media {
         // Galleries (reddit.com/gallery/…) and articles: link card.
         None => Media::Link { url: link.to_string(), thumbnail },
     }
+}
+
+/// Photo subreddits put the original size in the title ("… [4800x3198]").
+/// Using it lets the feed size the card before the image loads, so the list
+/// doesn't re-layout while scrolling.
+fn with_size_from_title(media: Media, title: &str) -> Media {
+    match media {
+        Media::Image { url, width: 0, height: 0, preview, thumbnail } => {
+            let (width, height) = size_in_title(title).unwrap_or((0, 0));
+            Media::Image { url, width, height, preview, thumbnail }
+        }
+        other => other,
+    }
+}
+
+/// Last "WxH" in brackets/parentheses, e.g. "[4800x3198]", "(4000 × 3000)".
+pub(crate) fn size_in_title(title: &str) -> Option<(u32, u32)> {
+    let mut found = None;
+    for (open, close) in [('[', ']'), ('(', ')')] {
+        let mut rest = title;
+        while let Some(a) = rest.find(open) {
+            let after = &rest[a + open.len_utf8()..];
+            let Some(b) = after.find(close) else { break };
+            let inner: String = after[..b].chars().filter(|c| !c.is_whitespace() && *c != ',').collect();
+            let mut parts = inner.split(['x', 'X', '×']);
+            if let (Some(w), Some(h), None) = (parts.next(), parts.next(), parts.next()) {
+                if let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>()) {
+                    if (100..=40_000).contains(&w) && (100..=40_000).contains(&h) {
+                        found = Some((w, h));
+                    }
+                }
+            }
+            rest = &after[b..];
+        }
+    }
+    found
 }
 
 /// The `[link]` anchor in the entry HTML: the post's actual target.
@@ -249,6 +286,16 @@ mod tests {
     }
 
     #[test]
+    fn sizes_in_titles() {
+        assert_eq!(size_in_title("Fog [OC] [4800x3198]"), Some((4800, 3198)));
+        assert_eq!(size_in_title("Lake (4000 × 3,000) [OC]"), Some((4000, 3000)));
+        assert_eq!(size_in_title("Peak [OC][6000X4000] taken at dawn"), Some((6000, 4000)));
+        assert_eq!(size_in_title("No size here [OC]"), None);
+        assert_eq!(size_in_title("Score [3x2] game"), None); // too small to be pixels
+        assert_eq!(size_in_title("Unclosed [4800x3198"), None);
+    }
+
+    #[test]
     fn entities() {
         assert_eq!(decode_entities("a &amp;amp; b"), "a &amp; b");
         assert_eq!(decode_entities("&lt;p&gt;&#32;x&#x41;&quot;"), "<p> xA\"");
@@ -273,10 +320,12 @@ mod tests {
         assert_eq!(img.age_text, "2h");
         assert_eq!(img.score_text, "");
         match &img.media {
-            Media::Image { url, preview, .. } => {
+            Media::Image { url, preview, width, height, thumbnail } => {
+                assert_eq!((*width, *height), (4800, 3198)); // from the title
                 assert_eq!(url, "https://i.redd.it/abc001.jpeg");
+                assert_eq!(*preview, None);
                 assert_eq!(
-                    preview.as_deref(),
+                    thumbnail.as_deref(),
                     Some("https://preview.redd.it/abc001.jpeg?width=640&crop=smart&auto=webp&s=sig1")
                 );
             }

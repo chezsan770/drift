@@ -11,6 +11,8 @@ pub struct CoreConfig {
     pub user_agent: String,
     /// Stable random id per install (20-30 chars), used for app-only OAuth.
     pub device_id: String,
+    /// App cache directory for the on-disk feed cache (None = no caching).
+    pub cache_dir: Option<String>,
 }
 
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,14 +43,24 @@ impl Sort {
     }
 }
 
+/// Result of downloading a file (for saving media to the gallery).
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct Download {
+    pub bytes: u64,
+    /// e.g. "image/jpeg", "video/mp4" (from the server, or guessed from the URL).
+    pub mime_type: String,
+    /// File extension without the dot, e.g. "jpg".
+    pub extension: String,
+}
+
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedPage {
     pub posts: Vec<Post>,
     /// Pass back into `feed()` to load the next page. `None` = end of feed.
     pub after: Option<String>,
 }
 
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Post {
     pub id: String,
     pub subreddit: String,
@@ -69,7 +81,7 @@ pub struct Post {
     pub media: Media,
 }
 
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GalleryItem {
     /// Original, full-resolution file.
     pub url: String,
@@ -85,7 +97,7 @@ pub struct GalleryItem {
 /// What a post (or any link) resolves to. `url`/`*_url` fields always point
 /// at the highest quality source available; `preview` is a card-sized
 /// (~1080px wide) image to show in the feed before the original loads.
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Media {
     Text {
         body: String,
@@ -94,7 +106,12 @@ pub enum Media {
         url: String,
         width: u32,
         height: u32,
+        /// Card-quality (≥1080px) image for the feed, when the source has one.
         preview: Option<String>,
+        /// Small, low-res image (e.g. RSS 640px) shown only as a placeholder
+        /// while `preview`/`url` loads. Never the final image on its own
+        /// unless the user picked data saver.
+        thumbnail: Option<String>,
     },
     Gallery {
         items: Vec<GalleryItem>,

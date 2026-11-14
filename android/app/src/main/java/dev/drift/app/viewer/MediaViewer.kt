@@ -48,7 +48,13 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
+import dev.drift.app.DriftApp
 import dev.drift.app.media.Playable
+import dev.drift.app.media.SaveItem
+import dev.drift.app.media.saveWithToast
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.media3.common.MimeTypes
+import kotlinx.coroutines.launch
 import dev.drift.app.media.buildPlayer
 import dev.drift.app.media.playable
 import dev.drift.app.media.toMediaItem
@@ -74,7 +80,7 @@ data class ViewerRequest(
     companion object {
         fun from(title: String, media: Media, startPage: Int, positionMs: Long): ViewerRequest? {
             val pages: List<ViewerPage> = when (media) {
-                is Media.Image -> listOf(ViewerPage.Still(media.url, media.preview))
+                is Media.Image -> listOf(ViewerPage.Still(media.url, media.preview ?: media.thumbnail))
                 is Media.Gallery -> media.items.map { item ->
                     if (item.isAnimated) {
                         ViewerPage.Clip(Playable(item.url, androidx.media3.common.MimeTypes.VIDEO_MP4, hasAudio = false, loop = true))
@@ -105,6 +111,7 @@ fun MediaViewer(request: ViewerRequest, highestQuality: Boolean, onClose: () -> 
     val dismissPx = with(LocalDensity.current) { 140.dp.toPx() }
     val context = LocalContext.current
     val uri = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
     val current = request.pages[pager.currentPage]
     val currentUrl = when (current) {
         is ViewerPage.Still -> current.url
@@ -168,6 +175,19 @@ fun MediaViewer(request: ViewerRequest, highestQuality: Boolean, onClose: () -> 
                 }
                 // Actions live in the top bar so they never cover the video
                 // player's own controls at the bottom.
+                TextButton(onClick = {
+                    val item = when (current) {
+                        is ViewerPage.Still -> SaveItem.File(current.url)
+                        is ViewerPage.Clip -> current.playable.let { p ->
+                            if (p.mimeType == MimeTypes.APPLICATION_M3U8 || p.mimeType == MimeTypes.APPLICATION_MPD) {
+                                SaveItem.Stream(p.uri, p.mimeType)
+                            } else {
+                                SaveItem.File(p.uri)
+                            }
+                        }
+                    }
+                    scope.launch { saveWithToast(context, (context.applicationContext as DriftApp).core, listOf(item)) }
+                }) { Text("Save", color = Color.White) }
                 TextButton(onClick = {
                     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, currentUrl)
                     context.startActivity(Intent.createChooser(send, null))

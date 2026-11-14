@@ -56,6 +56,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import dev.drift.core.extractUrl
+import dev.drift.app.DriftApp
+import dev.drift.app.media.saveItems
+import dev.drift.app.media.saveWithToast
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import dev.drift.core.Post
 import dev.drift.app.media.rememberIsMetered
 import dev.drift.app.media.setHighestQuality
@@ -107,6 +112,7 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
     var viewer by remember { mutableStateOf<ViewerRequest?>(null) }
     val context = LocalContext.current
     val uri = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
     // Posts the user tapped to un-blur (NSFW/spoiler), for this feed only.
@@ -136,7 +142,13 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
                     snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull() to posts.firstOrNull()?.id }
                         .first { (_, firstId) -> firstId == e.postId }
                     withFrameNanos { }
-                    listState.animateScrollToItem(0)
+                    val anchor = e.onlyIfStillAt
+                    if (anchor == null) {
+                        listState.animateScrollToItem(0)
+                    } else {
+                        val top = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+                        if (top?.key == anchor && listState.firstVisibleItemScrollOffset < 200) listState.scrollToItem(0)
+                    }
                 }
                 is FeedEvent.Message -> snackbar.showSnackbar(e.text)
             }
@@ -208,8 +220,11 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
             }
     }
 
-    // Back to the top whenever a different feed opens.
-    LaunchedEffect(state.subreddit, state.sort) { listState.scrollToItem(0) }
+    // Back to the top whenever a different feed opens, and when an empty feed
+    // gets its first posts: the list keeps the visible item (the footer) in
+    // place, so posts inserted above it would otherwise open scrolled to the end.
+    val feedEmpty = state.posts.isEmpty()
+    LaunchedEffect(state.subreddit, state.sort, feedEmpty) { listState.scrollToItem(0) }
 
     // Infinite scroll: ask for the next page 10 items before the end.
     val nearEnd by remember {
@@ -325,7 +340,8 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
     }
     viewer?.let { MediaViewer(it, settings.quality == Quality.HIGHEST, onClose = { viewer = null }) }
     if (showSettings) {
-        SettingsScreen(settings, vm.limitedMode, onChange = store::update, onClose = {
+        val hiddenCount by store.hiddenCount.collectAsStateWithLifecycle()
+        SettingsScreen(settings, vm.limitedMode, hiddenCount, onUnhideAll = store::unhideAll, onChange = store::update, onClose = {
             showSettings = false
             // Home may have just been set up or changed: show it.
             if (state.subreddit == HOME || (state.posts.isEmpty() && settings.hasHome)) vm.open(HOME)
@@ -346,9 +362,13 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
         )
     }
     actionsFor?.let { post ->
+        val saveItems = post.media.saveItems()
         PostActionsSheet(
             post = post,
             onOpenUrl = { runCatching { uri.openUri(it) } },
+            onSave = if (saveItems.isEmpty()) null else ({
+                scope.launch { saveWithToast(context, (context.applicationContext as DriftApp).core, saveItems) }
+            }),
             onHide = { vm.hide(post) },
             onDismiss = { actionsFor = null },
         )

@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     settings: AppSettings,
     limitedMode: Boolean,
+    hiddenCount: Int,
+    onUnhideAll: () -> Unit,
     onChange: ((AppSettings) -> AppSettings) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -72,6 +74,20 @@ fun SettingsScreen(
                 hint = "When off, NSFW media is blurred and the random button skips NSFW subreddits.",
             ) { v -> onChange { it.copy(showNsfw = v) } }
             Toggle("Blur spoilers", settings.blurSpoilers) { v -> onChange { it.copy(blurSpoilers = v) } }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Hidden posts", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
+                    Text(
+                        if (hiddenCount == 0) "None" else "$hiddenCount hidden",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onUnhideAll, enabled = hiddenCount > 0) { Text("Unhide all") }
+            }
         }
     }
 }

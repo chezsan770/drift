@@ -11,6 +11,8 @@ import dev.drift.core.Post
 import dev.drift.core.Sort
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +35,11 @@ data class FeedState(
     val error: String? = null,
     /** Seconds until Reddit allows the next feed load (limited mode). */
     val waitSecs: Int? = null,
+    /** Showing the saved copy of this feed; a refresh is pending. */
+    val fromCache: Boolean = false,
 ) {
+    val cacheKey: String get() = "$subreddit|${sort.name}"
+
     val title: String
         get() = when (subreddit) {
             HOME -> "Home"
@@ -47,8 +53,10 @@ const val HOME = "home"
 
 /** One-off UI events. */
 sealed interface FeedEvent {
-    /** Scroll to the top once [postId] is the first post in the list. */
-    data class ScrollToPost(val postId: String) : FeedEvent
+    /** Scroll to the top once [postId] is the first post in the list. With
+     *  [onlyIfStillAt], only if the user is still at that (previous first)
+     *  post, i.e. hasn't started scrolling. */
+    data class ScrollToPost(val postId: String, val onlyIfStillAt: String? = null) : FeedEvent
     data class Message(val text: String) : FeedEvent
 }
 
@@ -78,7 +86,23 @@ class FeedViewModel(
     private var homeTurn = 0
 
     init {
-        loadMore()
+        showCachedThenRefresh()
+    }
+
+    /** Show this feed's saved first page instantly (from Rust's disk cache),
+     *  then load a fresh one: new posts go on top. */
+    private fun showCachedThenRefresh() {
+        val s = _state.value
+        loadJob = viewModelScope.launch {
+            val cached = withContext(Dispatchers.IO) { core.cachedFeed(s.cacheKey) }
+            val cur = _state.value
+            if (cached != null && cached.posts.isNotEmpty() && cur.cacheKey == s.cacheKey && cur.posts.isEmpty()) {
+                _state.update {
+                    it.copy(posts = cached.posts.filter { p -> !store.isHidden(p.id) }, after = cached.after, fromCache = true)
+                }
+            }
+            loadMore()
+        }
     }
 
     fun open(subreddit: String, sort: Sort = _state.value.sort) {
@@ -89,7 +113,7 @@ class FeedViewModel(
         homeDone.clear()
         homeTurn = 0
         _state.value = FeedState(subreddit = name, sort = sort)
-        loadMore()
+        showCachedThenRefresh()
     }
 
     fun setSort(sort: Sort) = open(_state.value.subreddit, sort)
@@ -131,18 +155,40 @@ class FeedViewModel(
         val s = _state.value
         if (s.loading || s.endReached || s.error != null || s.waitSecs != null) return
         _state.update { it.copy(loading = true) }
+        // Showing the cached copy: fetch the first page again (a refresh).
+        val firstPage = s.fromCache || s.after == null
         loadJob = viewModelScope.launch {
             try {
-                val page = fetchPage(s)
+                val page = fetchPage(if (s.fromCache) s.copy(after = null) else s)
+                val fresh = page.posts.filter { !store.isHidden(it.id) }
+                val previousFirst = _state.value.posts.firstOrNull()?.id
                 _state.update { cur ->
                     if (cur.subreddit != s.subreddit || cur.sort != s.sort) return@update cur
-                    val seen = cur.posts.mapTo(HashSet()) { it.id }
+                    val merged = if (s.fromCache) {
+                        // New posts on top; the cached ones the user may be
+                        // looking at stay where they are.
+                        val ids = fresh.mapTo(HashSet()) { it.id }
+                        fresh + cur.posts.filter { it.id !in ids }
+                    } else {
+                        val seen = cur.posts.mapTo(HashSet()) { it.id }
+                        cur.posts + fresh.filter { seen.add(it.id) }
+                    }
                     cur.copy(
-                        posts = cur.posts + page.posts.filter { !store.isHidden(it.id) && seen.add(it.id) },
+                        posts = merged,
                         after = page.after,
                         endReached = page.after == null,
                         loading = false,
+                        fromCache = false,
                     )
+                }
+                // Refresh put new posts above the cached ones: show them if the
+                // user is still at the top (otherwise leave their place alone).
+                val newFirst = _state.value.posts.firstOrNull()?.id
+                if (s.fromCache && previousFirst != null && newFirst != null && newFirst != previousFirst) {
+                    _events.send(FeedEvent.ScrollToPost(newFirst, onlyIfStillAt = previousFirst))
+                }
+                if (firstPage && page.posts.isNotEmpty()) {
+                    withContext(Dispatchers.IO) { core.saveFeed(s.cacheKey, page) }
                 }
                 upgradeLinks(page.posts)
             } catch (e: CoreException.RateLimited) {

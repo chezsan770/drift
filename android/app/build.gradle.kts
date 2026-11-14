@@ -58,6 +58,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.10.1")
+    // Installs the precompiled code profiles Compose & co. ship with, so the
+    // first scrolls after install aren't running unoptimised code.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
@@ -72,6 +75,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-ui-compose:$media3")
+    // Saving streamed (HLS/DASH) videos: joins video + audio into one MP4.
+    implementation("androidx.media3:media3-transformer:$media3")
     // UniFFI's generated Kotlin talks to the Rust library through JNA.
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     debugImplementation("androidx.compose.ui:ui-tooling")

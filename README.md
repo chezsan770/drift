@@ -69,6 +69,24 @@ The Rust core picks the highest-quality source for every post: original
 - **Demo feed:** open `r/demo` (the default when no client id is configured) for
   real high-res test media that doesn't need Reddit API access.
 
+## Speed
+
+Measured on a Redmi Note 12 Pro (Android 14), release build:
+
+- Cold start: ~400–500 ms to the first frame; the last feed is shown from
+  the on-disk cache (Rust, JSON per feed) and refreshed in the background.
+- Scrolling: 0.66% janky frames, 99th percentile frame 19 ms (120 Hz display),
+  after reading image sizes from post titles (no re-layout while scrolling)
+  and installing library baseline profiles (`profileinstaller`).
+- Release APK ≈ 11 MB (Rust core 3.6 MB for arm64, fat LTO; R8 for the app).
+
+## Saving
+
+"Save to gallery" (long-press menu, or Save in the viewer) puts files in
+Pictures/Drift and Movies/Drift. The Rust core streams downloads (size-capped);
+Reddit videos, whose audio is a separate stream, are joined into one MP4 with
+Media3 Transformer. Galleries save every image. Android 10+.
+
 ## UI
 
 Calm and content-first: title, media and one grey metadata line per post.
