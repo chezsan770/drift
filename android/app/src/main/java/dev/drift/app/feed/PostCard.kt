@@ -1,8 +1,13 @@
 package dev.drift.app.feed
 
+import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +31,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.compose.PlayerSurface
+import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import coil3.compose.AsyncImage
+import dev.drift.app.media.FeedPlayer
 import dev.drift.core.Media
 import dev.drift.core.Post
 
@@ -34,7 +43,12 @@ private val Side = 16.dp
 
 /** Title, media, one quiet metadata line. Nothing else. */
 @Composable
-fun PostCard(post: Post) {
+fun PostCard(
+    post: Post,
+    isActiveVideo: Boolean,
+    feedPlayer: FeedPlayer,
+    onOpenMedia: (page: Int) -> Unit,
+) {
     val uri = LocalUriHandler.current
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
         Text(
@@ -43,7 +57,13 @@ fun PostCard(post: Post) {
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(horizontal = Side),
         )
-        PostMedia(post.media, onOpen = { runCatching { uri.openUri(it) } })
+        PostMedia(
+            post = post,
+            isActiveVideo = isActiveVideo,
+            feedPlayer = feedPlayer,
+            onOpenMedia = onOpenMedia,
+            onOpenUrl = { runCatching { uri.openUri(it) } },
+        )
         Text(
             buildString {
                 append("r/${post.subreddit} · ${post.ageText} · ↑ ${post.scoreText} · ${post.commentsText} comments")
@@ -63,8 +83,14 @@ fun PostCard(post: Post) {
 }
 
 @Composable
-private fun PostMedia(media: Media, onOpen: (String) -> Unit) {
-    when (media) {
+private fun PostMedia(
+    post: Post,
+    isActiveVideo: Boolean,
+    feedPlayer: FeedPlayer,
+    onOpenMedia: (Int) -> Unit,
+    onOpenUrl: (String) -> Unit,
+) {
+    when (val media = post.media) {
         is Media.Text -> if (media.body.isNotBlank()) {
             Text(
                 media.body,
@@ -81,7 +107,7 @@ private fun PostMedia(media: Media, onOpen: (String) -> Unit) {
                 model = media.preview ?: media.url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clickable { onOpen(media.url) },
+                modifier = Modifier.fillMaxSize().clickable { onOpenMedia(0) },
             )
         }
 
@@ -89,45 +115,85 @@ private fun PostMedia(media: Media, onOpen: (String) -> Unit) {
             val first = media.items.first()
             val pager = rememberPagerState { media.items.size }
             MediaFrame(first.width, first.height) {
-                HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
+                HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
                     val item = media.items[page]
-                    AsyncImage(
-                        model = item.url,
-                        contentDescription = item.caption,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().clickable { onOpen(item.url) },
-                    )
+                    Box(Modifier.fillMaxSize().clickable { onOpenMedia(page) }) {
+                        if (item.isAnimated) {
+                            Badge("GIF · tap to play", Modifier.align(Alignment.Center))
+                        } else {
+                            AsyncImage(
+                                model = item.preview ?: item.url,
+                                contentDescription = item.caption,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                 }
                 Badge("${pager.currentPage + 1}/${media.items.size}", Modifier.align(Alignment.TopEnd))
             }
         }
 
-        // Phase 2 replaces these two with in-feed ExoPlayer playback.
         is Media.Video -> MediaFrame(media.width, media.height) {
-            AsyncImage(
-                model = media.preview,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clickable {
-                    (media.hlsUrl ?: media.mp4Url ?: media.dashUrl)?.let(onOpen)
-                },
-            )
-            Badge("▶ video", Modifier.align(Alignment.BottomStart))
+            InlineVideo(post.id, media.preview, isActiveVideo, feedPlayer, onClick = { onOpenMedia(0) })
+            if (isActiveVideo && media.hasAudio) {
+                Badge(
+                    if (feedPlayer.muted) "🔇" else "🔊",
+                    Modifier.align(Alignment.BottomEnd).clickable { feedPlayer.toggleMute() },
+                )
+            }
+            if (!isActiveVideo) Badge("▶", Modifier.align(Alignment.BottomStart))
         }
 
         is Media.Gif -> MediaFrame(media.width, media.height) {
-            AsyncImage(
-                model = media.preview,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clickable { onOpen(media.mp4Url) },
-            )
+            InlineVideo(post.id, media.preview, isActiveVideo, feedPlayer, onClick = { onOpenMedia(0) })
             Badge("GIF", Modifier.align(Alignment.BottomStart))
         }
 
-        is Media.Embed -> LinkRow(media.url, media.thumbnail, media.provider, onOpen)
-        is Media.Link -> LinkRow(media.url, media.thumbnail, null, onOpen)
+        is Media.Embed -> LinkRow(media.url, media.thumbnail, media.provider, onOpenUrl)
+        is Media.Link -> LinkRow(media.url, media.thumbnail, null, onOpenUrl)
     }
+}
+
+/**
+ * Preview still, with the shared feed player's surface on top while this is
+ * the active card. The still stays until the first video frame is drawn, so
+ * there is never a black flash.
+ */
+@OptIn(UnstableApi::class)
+@Composable
+private fun BoxScope.InlineVideo(
+    key: String,
+    preview: String?,
+    isActive: Boolean,
+    feedPlayer: FeedPlayer,
+    onClick: () -> Unit,
+) {
+    val playing = isActive && feedPlayer.currentKey == key
+    if (playing) {
+        PlayerSurface(
+            player = feedPlayer.player,
+            surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+    AnimatedVisibility(
+        visible = !(playing && feedPlayer.hasFirstFrame),
+        exit = fadeOut(tween(150)),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        if (preview != null) {
+            AsyncImage(
+                model = preview,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(Color.Black))
+        }
+    }
+    Box(Modifier.matchParentSize().clickable(onClick = onClick))
 }
 
 /**
@@ -135,7 +201,7 @@ private fun PostMedia(media: Media, onOpen: (String) -> Unit) {
  * jumps when images arrive. Very tall images are capped and cropped.
  */
 @Composable
-private fun MediaFrame(width: UInt, height: UInt, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+private fun MediaFrame(width: UInt, height: UInt, content: @Composable BoxScope.() -> Unit) {
     val ratio = if (width > 0u && height > 0u) width.toFloat() / height.toFloat() else 16f / 9f
     Box(
         Modifier

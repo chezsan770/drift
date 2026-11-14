@@ -131,12 +131,22 @@ fn gallery_items(p: &RawPost) -> Option<Vec<GalleryItem>> {
             let s = m.s.as_ref()?;
             let animated = m.e.as_deref() == Some("AnimatedImage");
             let url = if animated { s.mp4.as_ref().or(s.gif.as_ref()) } else { s.u.as_ref() }?;
+            let preview = if animated {
+                None
+            } else {
+                m.p.iter()
+                    .filter(|p| p.x >= CARD_PREVIEW_MIN_WIDTH && p.u.is_some())
+                    .min_by_key(|p| p.x)
+                    .and_then(|p| p.u.as_deref())
+                    .map(unescape_url)
+            };
             Some(GalleryItem {
                 url: unescape_url(url),
                 width: s.x,
                 height: s.y,
                 is_animated: animated && s.mp4.is_some(),
                 caption: entry.caption.clone().filter(|c| !c.is_empty()),
+                preview,
             })
         })
         .collect();

@@ -78,6 +78,8 @@ pub struct GalleryItem {
     /// True when `url` is an MP4/GIF that should be played as video.
     pub is_animated: bool,
     pub caption: Option<String>,
+    /// Card-sized (~1080px) still for the feed. `None` for animated items.
+    pub preview: Option<String>,
 }
 
 /// What a post (or any link) resolves to. `url`/`*_url` fields always point

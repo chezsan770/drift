@@ -27,9 +27,9 @@ data class FeedState(
 )
 
 /** Thin state holder: every decision about data lives in the Rust core. */
-class FeedViewModel(private val core: DriftCore) : ViewModel() {
+class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : ViewModel() {
 
-    private val _state = MutableStateFlow(FeedState(subreddit = "EarthPorn"))
+    private val _state = MutableStateFlow(FeedState(subreddit = initialSubreddit))
     val state: StateFlow<FeedState> = _state.asStateFlow()
 
     private var loadJob: Job? = null

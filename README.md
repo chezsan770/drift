@@ -36,6 +36,19 @@ The Rust core picks the highest-quality source for every post: original
 `i.redd.it` images, galleries in their posted order, HLS/DASH streams for
 `v.redd.it` (video with audio), MP4 versions of GIFs, and crosspost parents.
 
+## Media
+
+- **Feed:** card-sized (~1080px) previews; the most visible video/GIF
+  autoplays muted through one shared ExoPlayer (always the highest bitrate the
+  device supports).
+- **Viewer:** tap any media for full screen. Images load at full resolution
+  with pinch/double-tap zoom (subsampled when huge); galleries swipe sideways;
+  videos continue from the feed position with sound; swipe down to close.
+- **Prefetch:** the Rust core picks which images to download ahead based on
+  scroll speed (`prefetch_urls`).
+- **Demo feed:** open `r/demo` (the default when no client id is configured) for
+  real high-res test media that doesn't need Reddit API access.
+
 ## Building
 
 Requirements: Rust (with the `aarch64-linux-android` and `x86_64-linux-android`

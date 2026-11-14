@@ -63,6 +63,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("io.coil-kt.coil3:coil-compose:3.2.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.2.0")
+    // Zoomable full-screen images with subsampling for very large files.
+    implementation("me.saket.telephoto:zoomable-image-coil3:0.16.0")
+    // Video: hardware-decoded HLS/DASH/MP4 with on-disk caching.
+    val media3 = "1.8.0"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
+    implementation("androidx.media3:media3-exoplayer-dash:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-ui-compose:$media3")
     // UniFFI's generated Kotlin talks to the Rust library through JNA.
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     debugImplementation("androidx.compose.ui:ui-tooling")

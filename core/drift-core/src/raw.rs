@@ -125,6 +125,8 @@ pub struct MediaMeta {
     /// "Image" | "AnimatedImage" | "RedditVideo"
     pub e: Option<String>,
     pub s: Option<MetaSource>,
+    /// Downscaled versions, smallest first.
+    pub p: Vec<MetaPreview>,
 }
 
 #[derive(Deserialize, Default, Debug, Clone)]
@@ -133,6 +135,14 @@ pub struct MetaSource {
     pub u: Option<String>,
     pub gif: Option<String>,
     pub mp4: Option<String>,
+    pub x: u32,
+    pub y: u32,
+}
+
+#[derive(Deserialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct MetaPreview {
+    pub u: Option<String>,
     pub x: u32,
     pub y: u32,
 }

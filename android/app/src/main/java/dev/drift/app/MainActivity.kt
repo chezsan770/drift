@@ -16,7 +16,9 @@ class MainActivity : ComponentActivity() {
         val core = (application as DriftApp).core
         setContent {
             DriftTheme {
-                val vm: FeedViewModel = viewModel { FeedViewModel(core) }
+                // Without Reddit API access, start on the built-in demo feed (r/demo).
+                val start = if (BuildConfig.REDDIT_CLIENT_ID.isBlank()) "demo" else "EarthPorn"
+                val vm: FeedViewModel = viewModel { FeedViewModel(core, start) }
                 FeedScreen(vm)
             }
         }

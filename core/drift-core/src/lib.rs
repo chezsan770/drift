@@ -4,7 +4,9 @@
 uniffi::setup_scaffolding!();
 
 mod api;
+mod demo;
 mod error;
+pub mod prefetch;
 mod format;
 pub mod media;
 mod model;
@@ -40,6 +42,9 @@ impl DriftCore {
         sort: Sort,
         after: Option<String>,
     ) -> Result<FeedPage, CoreError> {
+        if subreddit.eq_ignore_ascii_case("demo") {
+            return Ok(if after.is_none() { demo::page(now()) } else { FeedPage { posts: vec![], after: None } });
+        }
         let (segment, t) = sort.parts();
         let path = if subreddit.is_empty() {
             format!("/{segment}")

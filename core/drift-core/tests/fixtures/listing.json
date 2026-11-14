@@ -40,7 +40,9 @@
             {"media_id": "m3"}
           ]},
           "media_metadata": {
-            "m1": {"status": "valid", "e": "Image", "m": "image/jpg", "s": {"u": "https://preview.redd.it/m1.jpg?width=3000&amp;s=x", "x": 3000, "y": 2000}},
+            "m1": {"status": "valid", "e": "Image", "m": "image/jpg", "s": {"u": "https://preview.redd.it/m1.jpg?width=3000&amp;s=x", "x": 3000, "y": 2000},
+                   "p": [{"u": "https://preview.redd.it/m1.jpg?width=640&s=p1", "x": 640, "y": 426},
+                         {"u": "https://preview.redd.it/m1.jpg?width=1080&amp;s=p2", "x": 1080, "y": 720}]},
             "m2": {"status": "valid", "e": "Image", "m": "image/png", "s": {"u": "https://preview.redd.it/m2.png?width=1200&s=y", "x": 1200, "y": 1600}},
             "mbad": {"status": "unprocessed"},
             "m3": {"status": "valid", "e": "AnimatedImage", "m": "image/gif", "s": {"gif": "https://i.redd.it/m3.gif", "mp4": "https://preview.redd.it/m3.gif?format=mp4&s=z", "x": 480, "y": 270}}

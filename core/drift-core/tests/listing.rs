@@ -47,6 +47,7 @@ fn gallery_keeps_order_and_skips_broken() {
                 height: 1600,
                 is_animated: false,
                 caption: Some("second first".into()),
+                preview: None,
             },
             GalleryItem {
                 url: "https://preview.redd.it/m1.jpg?width=3000&s=x".into(),
@@ -54,6 +55,7 @@ fn gallery_keeps_order_and_skips_broken() {
                 height: 2000,
                 is_animated: false,
                 caption: None,
+                preview: Some("https://preview.redd.it/m1.jpg?width=1080&s=p2".into()),
             },
             GalleryItem {
                 url: "https://preview.redd.it/m3.gif?format=mp4&s=z".into(),
@@ -61,6 +63,7 @@ fn gallery_keeps_order_and_skips_broken() {
                 height: 270,
                 is_animated: true,
                 caption: None,
+                preview: None,
             },
         ]
     );

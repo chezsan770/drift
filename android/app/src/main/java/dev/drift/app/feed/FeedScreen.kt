@@ -50,6 +50,23 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import dev.drift.app.media.FeedPlayer
+import dev.drift.app.media.playable
+import dev.drift.app.viewer.MediaViewer
+import dev.drift.app.viewer.ViewerRequest
+import dev.drift.core.prefetchUrls
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 private val sortLabels = listOf(
     Sort.HOT to "Hot", Sort.NEW to "New", Sort.RISING to "Rising",
@@ -61,10 +78,58 @@ private val sortLabels = listOf(
 @Composable
 fun FeedScreen(vm: FeedViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val posts by rememberUpdatedState(state.posts)
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     var sortMenu by remember { mutableStateOf(false) }
     var goToDialog by remember { mutableStateOf(false) }
+    var viewer by remember { mutableStateOf<ViewerRequest?>(null) }
+    val context = LocalContext.current
+
+    // One player for the whole feed; it follows the most visible video card.
+    val feedPlayer = remember { FeedPlayer(context) }
+    DisposableEffect(feedPlayer) { onDispose { feedPlayer.release() } }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { feedPlayer.setPaused(true) }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { feedPlayer.setPaused(viewer != null) }
+    LaunchedEffect(viewer) { feedPlayer.setPaused(viewer != null) }
+
+    val activeVideoId by remember { derivedStateOf { mostVisibleVideo(listState.layoutInfo) } }
+    LaunchedEffect(activeVideoId) {
+        val post = posts.firstOrNull { it.id == activeVideoId }
+        val playable = post?.media?.playable()
+        if (post == null || playable == null) feedPlayer.stop() else feedPlayer.play(post.id, playable)
+    }
+
+    // Prefetch: Rust picks which card images to download ahead, based on the
+    // posts below the viewport and how fast the list is moving.
+    LaunchedEffect(listState) {
+        val loader = SingletonImageLoader.get(context)
+        val requested = HashSet<String>()
+        var lastIndex = 0
+        var lastTime = System.nanoTime()
+        var velocity = 0f
+        snapshotFlow { (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) to posts.size }
+            .collect { (last, size) ->
+                val now = System.nanoTime()
+                val dt = (now - lastTime) / 1e9f
+                if (dt > 0f) velocity = 0.6f * velocity + 0.4f * (abs(last - lastIndex) / dt).coerceAtMost(50f)
+                lastIndex = last
+                lastTime = now
+                val from = (last + 1).coerceAtMost(size)
+                val upcoming = posts.subList(from, minOf(size, from + 12))
+                if (upcoming.isEmpty()) return@collect
+                val urls = withContext(Dispatchers.Default) { prefetchUrls(upcoming, velocity) }
+                for (url in urls) {
+                    if (!requested.add(url)) continue
+                    loader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(url)
+                            .memoryCachePolicy(CachePolicy.DISABLED) // disk only; cards decode at their own size
+                            .build()
+                    )
+                }
+            }
+    }
 
     // Back to the top whenever a different feed opens.
     LaunchedEffect(state.subreddit, state.sort) { listState.scrollToItem(0) }
@@ -87,6 +152,7 @@ fun FeedScreen(vm: FeedViewModel) {
         label = "dice",
     )
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
@@ -148,7 +214,14 @@ fun FeedScreen(vm: FeedViewModel) {
                 key = { it.id },
                 contentType = { it.media.kindKey() },
             ) { post ->
-                PostCard(post)
+                PostCard(
+                    post = post,
+                    isActiveVideo = post.id == activeVideoId,
+                    feedPlayer = feedPlayer,
+                    onOpenMedia = { page ->
+                        viewer = ViewerRequest.from(post.title, post.media, page, feedPlayer.positionFor(post.id))
+                    },
+                )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
             item(key = "footer") {
@@ -161,6 +234,8 @@ fun FeedScreen(vm: FeedViewModel) {
             }
         }
     }
+    viewer?.let { MediaViewer(it, onClose = { viewer = null }) }
+    }
 
     if (goToDialog) {
         GoToSubredditDialog(
@@ -170,12 +245,34 @@ fun FeedScreen(vm: FeedViewModel) {
     }
 }
 
+private const val KIND_VIDEO = 3
+private const val KIND_GIF = 4
+
+/**
+ * The video/GIF card that should be playing: at least 60% visible, and
+ * closest to the middle of the screen when several qualify.
+ */
+private fun mostVisibleVideo(info: LazyListLayoutInfo): String? {
+    val top = info.viewportStartOffset
+    val bottom = info.viewportEndOffset
+    val center = (top + bottom) / 2
+    return info.visibleItemsInfo
+        .asSequence()
+        .filter { it.contentType == KIND_VIDEO || it.contentType == KIND_GIF }
+        .filter { item ->
+            val shown = minOf(item.offset + item.size, bottom) - maxOf(item.offset, top)
+            item.size > 0 && shown.toFloat() / item.size >= 0.6f
+        }
+        .minByOrNull { abs(it.offset + it.size / 2 - center) }
+        ?.key as? String
+}
+
 private fun Media.kindKey(): Int = when (this) {
     is Media.Text -> 0
     is Media.Image -> 1
     is Media.Gallery -> 2
-    is Media.Video -> 3
-    is Media.Gif -> 4
+    is Media.Video -> KIND_VIDEO
+    is Media.Gif -> KIND_GIF
     is Media.Embed -> 5
     is Media.Link -> 6
 }
