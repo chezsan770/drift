@@ -194,7 +194,8 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
                 val from = (last + 1).coerceAtMost(size)
                 val upcoming = posts.subList(from, minOf(size, from + 12))
                 if (upcoming.isEmpty()) return@collect
-                val urls = withContext(Dispatchers.Default) { prefetchUrls(upcoming, velocity) }
+                val hq = settings.quality == Quality.HIGHEST
+                val urls = withContext(Dispatchers.Default) { prefetchUrls(upcoming, velocity, hq) }
                 for (url in urls) {
                     if (!requested.add(url)) continue
                     loader.enqueue(
@@ -244,7 +245,7 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
                 title = {
                     TextButton(onClick = { subredditSheet = true }) {
                         Text(
-                            "r/${state.subreddit}  ▾",
+                            "${state.title}  ▾",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onBackground,
                         )
@@ -306,6 +307,7 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
                     isActiveVideo = post.id == activeVideoId,
                     feedPlayer = feedPlayer,
                     blur = blurOf(post),
+                    highQuality = settings.quality == Quality.HIGHEST,
                     cb = callbacks,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -315,6 +317,7 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
                     loading = state.loading,
                     endReached = state.endReached && state.posts.isNotEmpty(),
                     error = state.error,
+                    waitSecs = state.waitSecs,
                     onRetry = vm::retry,
                 )
             }
@@ -322,7 +325,11 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
     }
     viewer?.let { MediaViewer(it, settings.quality == Quality.HIGHEST, onClose = { viewer = null }) }
     if (showSettings) {
-        SettingsScreen(settings, onChange = store::update, onClose = { showSettings = false })
+        SettingsScreen(settings, vm.limitedMode, onChange = store::update, onClose = {
+            showSettings = false
+            // Home may have just been set up or changed: show it.
+            if (state.subreddit == HOME || (state.posts.isEmpty() && settings.hasHome)) vm.open(HOME)
+        })
     }
     }
 
@@ -330,6 +337,7 @@ fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
         SubredditSheet(
             current = state.subreddit,
             recent = recent,
+            hasHome = settings.hasHome,
             onGo = { text ->
                 subredditSheet = false
                 if (extractUrl(text) != null) vm.addLink(text) else vm.open(text)
@@ -381,12 +389,18 @@ private fun Media.kindKey(): Int = when (this) {
 }
 
 @Composable
-private fun FeedFooter(loading: Boolean, endReached: Boolean, error: String?, onRetry: () -> Unit) {
+private fun FeedFooter(loading: Boolean, endReached: Boolean, error: String?, waitSecs: Int?, onRetry: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().padding(24.dp),
         contentAlignment = Alignment.Center,
     ) {
         when {
+            waitSecs != null -> Text(
+                "Reddit allows about one feed load a minute without API access.\nLoading more in ${waitSecs}s…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
             error != null -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -13,6 +13,7 @@ pub mod media;
 mod model;
 mod random;
 mod raw;
+mod rss;
 
 pub use error::CoreError;
 pub use model::*;
@@ -47,6 +48,9 @@ impl DriftCore {
             return Ok(if after.is_none() { demo::page(now()) } else { FeedPage { posts: vec![], after: None } });
         }
         let (segment, t) = sort.parts();
+        if self.api.is_anonymous() {
+            return self.rss_feed(&subreddit, segment, t, after).await;
+        }
         let path = if subreddit.is_empty() {
             format!("/{segment}")
         } else {
@@ -63,8 +67,40 @@ impl DriftCore {
         parse_listing(&body, now())
     }
 
+    /// A user's private Reddit RSS link (e.g. their front page from
+    /// reddit.com/prefs/feeds). Only reddit.com links are fetched.
+    pub async fn feed_private(&self, url: String, after: Option<String>) -> Result<FeedPage, CoreError> {
+        let limit = rss::PAGE_SIZE.to_string();
+        let mut q: Vec<(&str, &str)> = vec![("limit", &limit)];
+        if let Some(a) = after.as_deref() {
+            q.push(("after", a));
+        }
+        let xml = self.api.get_rss(url.trim(), &q).await?;
+        Ok(rss::parse_feed(&xml, now()))
+    }
+
+    /// True when running without API access (RSS fallback: read-only,
+    /// about one feed request per minute, no scores or comment counts).
+    pub fn is_limited_mode(&self) -> bool {
+        self.api.is_anonymous()
+    }
+
+    /// Seconds until Reddit will accept another request (0 = now).
+    pub fn rate_limit_wait_secs(&self) -> u32 {
+        self.api.wait_secs()
+    }
+
     /// A random, public, non-empty subreddit name. NSFW only if allowed.
     pub async fn random_subreddit(&self, allow_nsfw: bool) -> Result<String, CoreError> {
+        if self.api.is_anonymous() {
+            // Can't afford an /about check per pick at ~1 request/minute;
+            // the seed list is hand-picked public SFW subreddits.
+            let _ = allow_nsfw;
+            let mut h = self.history.lock().unwrap();
+            let pick = random::pick(random::SEED, &h).to_string();
+            h.push(&pick);
+            return Ok(pick);
+        }
         for _ in 0..6 {
             let candidate = {
                 let h = self.history.lock().unwrap();
@@ -151,6 +187,34 @@ impl DriftCore {
             .filter_map(|x| async move { x })
             .collect()
             .await
+    }
+}
+
+impl DriftCore {
+    async fn rss_feed(
+        &self,
+        subreddit: &str,
+        segment: &str,
+        t: Option<&str>,
+        after: Option<String>,
+    ) -> Result<FeedPage, CoreError> {
+        // Hot is the default listing, so it gets no path segment.
+        let sort_path = if segment == "hot" { String::new() } else { format!("{segment}/") };
+        let url = if subreddit.is_empty() {
+            format!("https://www.reddit.com/{sort_path}.rss")
+        } else {
+            format!("https://www.reddit.com/r/{subreddit}/{sort_path}.rss")
+        };
+        let limit = rss::PAGE_SIZE.to_string();
+        let mut q: Vec<(&str, &str)> = vec![("limit", &limit)];
+        if let Some(t) = t {
+            q.push(("t", t));
+        }
+        if let Some(a) = after.as_deref() {
+            q.push(("after", a));
+        }
+        let xml = self.api.get_rss(&url, &q).await?;
+        Ok(rss::parse_feed(&xml, now()))
     }
 }
 

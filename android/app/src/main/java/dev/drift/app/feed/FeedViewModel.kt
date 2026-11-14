@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import dev.drift.app.settings.SettingsStore
 import dev.drift.core.CoreException
 import dev.drift.core.DriftCore
+import dev.drift.core.FeedPage
 import dev.drift.core.Post
 import dev.drift.core.Sort
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +31,19 @@ data class FeedState(
     val rolling: Boolean = false,
     val resolvingLink: Boolean = false,
     val error: String? = null,
-)
+    /** Seconds until Reddit allows the next feed load (limited mode). */
+    val waitSecs: Int? = null,
+) {
+    val title: String
+        get() = when (subreddit) {
+            HOME -> "Home"
+            "" -> "Front page"
+            else -> "r/$subreddit"
+        }
+}
+
+/** Pseudo-subreddit for the user's Home feed (see Settings). */
+const val HOME = "home"
 
 /** One-off UI events. */
 sealed interface FeedEvent {
@@ -53,14 +67,27 @@ class FeedViewModel(
 
     private var loadJob: Job? = null
 
+    /** No API access: feeds come from RSS (read-only, ~1 load/minute). */
+    val limitedMode: Boolean = core.isLimitedMode()
+
+    // Limited-mode Home: Reddit refuses combined "a+b" RSS feeds, so Home
+    // takes turns, one subreddit per load, remembering each one's position.
+    // (Declared before `init` below: Kotlin initialises in declaration order.)
+    private val homeAfter = HashMap<String, String?>()
+    private val homeDone = HashSet<String>()
+    private var homeTurn = 0
+
     init {
         loadMore()
     }
 
     fun open(subreddit: String, sort: Sort = _state.value.sort) {
         val name = subreddit.trim().removePrefix("/").removePrefix("r/")
-        store.rememberSubreddit(name)
+        if (name != HOME && name.isNotEmpty()) store.rememberSubreddit(name)
         loadJob?.cancel()
+        homeAfter.clear()
+        homeDone.clear()
+        homeTurn = 0
         _state.value = FeedState(subreddit = name, sort = sort)
         loadMore()
     }
@@ -72,13 +99,41 @@ class FeedViewModel(
         loadMore()
     }
 
+    /** Load a page for [s]: Home resolves to the private RSS link or the
+     *  subreddit list from Settings. */
+    private suspend fun fetchPage(s: FeedState): FeedPage {
+        if (s.subreddit != HOME) return core.feed(s.subreddit, s.sort, s.after)
+        val cfg = store.settings.value
+        return when {
+            cfg.privateFeedUrl.isNotBlank() -> core.feedPrivate(cfg.privateFeedUrl, s.after)
+            cfg.homeMulti.isEmpty() ->
+                throw CoreException.NotFound("Home isn't set up yet: add subreddits in ⋮ Settings.")
+            // With API access, Reddit combines them in one listing.
+            !limitedMode -> core.feed(cfg.homeMulti, s.sort, s.after)
+            else -> nextHomeTurn(cfg.homeMulti.split('+'), s.sort)
+        }
+    }
+
+    private suspend fun nextHomeTurn(subs: List<String>, sort: Sort): FeedPage {
+        val pending = subs.indices.map { (homeTurn + it) % subs.size }.firstOrNull { subs[it] !in homeDone }
+            ?: return FeedPage(emptyList(), null)
+        val sub = subs[pending]
+        val page = core.feed(sub, sort, homeAfter[sub])
+        homeAfter[sub] = page.after
+        if (page.after == null) homeDone += sub
+        homeTurn = (pending + 1) % subs.size
+        val more = subs.any { it !in homeDone }
+        // "after" only tells the screen there's more; Home tracks positions itself.
+        return FeedPage(page.posts, if (more) "home" else null)
+    }
+
     fun loadMore() {
         val s = _state.value
-        if (s.loading || s.endReached || s.error != null) return
+        if (s.loading || s.endReached || s.error != null || s.waitSecs != null) return
         _state.update { it.copy(loading = true) }
         loadJob = viewModelScope.launch {
             try {
-                val page = core.feed(s.subreddit, s.sort, s.after)
+                val page = fetchPage(s)
                 _state.update { cur ->
                     if (cur.subreddit != s.subreddit || cur.sort != s.sort) return@update cur
                     val seen = cur.posts.mapTo(HashSet()) { it.id }
@@ -90,10 +145,26 @@ class FeedViewModel(
                     )
                 }
                 upgradeLinks(page.posts)
+            } catch (e: CoreException.RateLimited) {
+                waitAndRetry()
             } catch (e: CoreException) {
                 _state.update { it.copy(loading = false, error = e.message ?: "Something went wrong") }
             }
         }
+    }
+
+    /** Reddit's limit is reached: count down, then load automatically. */
+    private suspend fun waitAndRetry() {
+        val target = _state.value.subreddit to _state.value.sort
+        var left = core.rateLimitWaitSecs().toInt().coerceAtLeast(1)
+        while (left > 0) {
+            _state.update { it.copy(loading = false, waitSecs = left) }
+            delay(1000)
+            left = core.rateLimitWaitSecs().toInt()
+        }
+        _state.update { it.copy(waitSecs = null) }
+        val cur = _state.value
+        if (cur.subreddit to cur.sort == target) loadMore()
     }
 
     /** Swap link cards from media hosts (Streamable, Redgifs, Imgur...) for

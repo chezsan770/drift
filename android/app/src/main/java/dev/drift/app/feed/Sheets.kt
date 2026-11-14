@@ -93,6 +93,7 @@ private fun SheetRow(label: String, onClick: () -> Unit) {
 fun SubredditSheet(
     current: String,
     recent: List<String>,
+    hasHome: Boolean,
     onGo: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -121,6 +122,16 @@ fun SubredditSheet(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
                 )
             }
+            Text(
+                "Feeds",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
+            )
+            if (current != HOME) {
+                SheetRow(if (hasHome) "Home" else "Home  (set up in ⋮ Settings)") { if (hasHome) onGo(HOME) }
+            }
+            if (current.isNotEmpty()) SheetRow("Front page") { onGo("") }
             val choices = (recent + "demo").distinctBy { it.lowercase() }.filterNot { it.equals(current, ignoreCase = true) }
             if (choices.isNotEmpty()) {
                 Text(

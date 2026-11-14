@@ -17,8 +17,11 @@ pub fn window(items_per_sec: f32) -> usize {
 
 /// The URL(s) a post's card loads in the feed (must match the UI exactly,
 /// or the prefetched bytes are never reused).
-pub fn card_urls(media: &Media) -> Vec<String> {
+pub fn card_urls(media: &Media, high_quality: bool) -> Vec<String> {
     match media {
+        // Unknown size (RSS, links) + highest quality: the card loads the
+        // original, with the small preview only as a placeholder.
+        Media::Image { url, preview, width: 0, .. } if high_quality || preview.is_none() => vec![url.clone()],
         Media::Image { url, preview, .. } => vec![preview.clone().unwrap_or_else(|| url.clone())],
         Media::Gallery { items } => items
             .iter()
@@ -33,10 +36,10 @@ pub fn card_urls(media: &Media) -> Vec<String> {
 }
 
 #[uniffi::export]
-pub fn prefetch_urls(upcoming: Vec<Post>, items_per_sec: f32) -> Vec<String> {
+pub fn prefetch_urls(upcoming: Vec<Post>, items_per_sec: f32, high_quality: bool) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for p in upcoming.iter().take(window(items_per_sec)) {
-        for u in card_urls(&p.media) {
+        for u in card_urls(&p.media, high_quality) {
             if !out.contains(&u) {
                 out.push(u);
             }
@@ -85,8 +88,15 @@ mod tests {
     #[test]
     fn uses_card_preview_not_original() {
         let posts = (0..20).map(|n| post(img(n))).collect();
-        let urls = prefetch_urls(posts, 0.0);
+        let urls = prefetch_urls(posts, 0.0, true);
         assert_eq!(urls, vec!["card0", "card1", "card2"]);
+    }
+
+    #[test]
+    fn unknown_size_follows_quality() {
+        let rss = Media::Image { url: "orig".into(), width: 0, height: 0, preview: Some("thumb".into()) };
+        assert_eq!(prefetch_urls(vec![post(rss.clone())], 0.0, true), vec!["orig"]);
+        assert_eq!(prefetch_urls(vec![post(rss)], 0.0, false), vec!["thumb"]);
     }
 
     #[test]
@@ -100,7 +110,7 @@ mod tests {
             preview: None,
         };
         let g = Media::Gallery { items: vec![item("a", false), item("m", true), item("b", false), item("c", false)] };
-        let urls = prefetch_urls(vec![post(g), post(img(1)), post(img(1))], 0.0);
+        let urls = prefetch_urls(vec![post(g), post(img(1)), post(img(1))], 0.0, true);
         assert_eq!(urls, vec!["a", "b", "card1"]);
     }
 }

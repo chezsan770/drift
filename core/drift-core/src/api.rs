@@ -25,6 +25,9 @@ pub struct Api {
     cfg: CoreConfig,
     token: Mutex<Option<Token>>,
     redgifs_token: Mutex<Option<Token>>,
+    /// Earliest moment Reddit will accept another request (from its
+    /// x-ratelimit headers). Requests before then fail fast, locally.
+    reddit_ready_at: std::sync::Mutex<Option<Instant>>,
 }
 
 #[derive(Deserialize)]
@@ -44,7 +47,69 @@ impl Api {
             .brotli(true)
             .build()
             .expect("static client config is valid");
-        Self { http, cfg, token: Mutex::new(None), redgifs_token: Mutex::new(None) }
+        Self {
+            http,
+            cfg,
+            token: Mutex::new(None),
+            redgifs_token: Mutex::new(None),
+            reddit_ready_at: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// No client id: Reddit's API is unavailable, use the RSS fallback.
+    pub fn is_anonymous(&self) -> bool {
+        self.cfg.client_id.as_deref().is_none_or(|c| c.trim().is_empty())
+    }
+
+    /// Seconds until Reddit accepts another request (0 = now).
+    pub fn wait_secs(&self) -> u32 {
+        let ready = *self.reddit_ready_at.lock().unwrap();
+        ready
+            .and_then(|t| t.checked_duration_since(Instant::now()))
+            .map(|d| d.as_secs_f64().ceil() as u32)
+            .unwrap_or(0)
+    }
+
+    fn gate(&self) -> Result<(), CoreError> {
+        match self.wait_secs() {
+            0 => Ok(()),
+            secs => Err(CoreError::RateLimited { retry_after_secs: secs }),
+        }
+    }
+
+    /// Remember Reddit's rate-limit window from a response.
+    fn note_limits(&self, resp: &reqwest::Response) {
+        let h = resp.headers();
+        let num = |k: &str| h.get(k).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<f64>().ok());
+        let exhausted = resp.status() == StatusCode::TOO_MANY_REQUESTS || num("x-ratelimit-remaining") == Some(0.0);
+        if exhausted {
+            let secs = num("x-ratelimit-reset").unwrap_or(60.0).clamp(1.0, 600.0);
+            *self.reddit_ready_at.lock().unwrap() = Some(Instant::now() + Duration::from_secs_f64(secs));
+        }
+    }
+
+    /// Fetch a Reddit RSS/Atom URL (public feed, or a user's private feed
+    /// link). Only reddit.com URLs are accepted.
+    pub async fn get_rss(&self, url: &str, query: &[(&str, &str)]) -> Result<String, CoreError> {
+        let parsed = url::Url::parse(url).map_err(|_| CoreError::NotFound)?;
+        let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+        if parsed.scheme() != "https" || !(host == "reddit.com" || host.ends_with(".reddit.com")) {
+            return Err(CoreError::NotFound);
+        }
+        self.gate()?;
+        let resp = self.http.get(parsed).query(query).send().await?;
+        self.note_limits(&resp);
+        check_status(&resp)?;
+        // Reddit answers some feeds (e.g. combined "a+b" without API access)
+        // with a redirect to its HTML homepage: that's not a feed.
+        if !content_type(resp.headers()).contains("xml") {
+            return Err(CoreError::NotAFeed);
+        }
+        let body = String::from_utf8_lossy(&resp.bytes().await?).into_owned();
+        if !body.contains("<feed") {
+            return Err(CoreError::NotAFeed);
+        }
+        Ok(body)
     }
 
     async fn bearer(&self, client_id: &str) -> Result<String, CoreError> {
@@ -81,7 +146,9 @@ impl Api {
             }
             None => self.http.get(format!("{ANON_BASE}{path}.json")),
         };
+        self.gate()?;
         let resp = req.query(&q).send().await?;
+        self.note_limits(&resp);
         check_status(&resp)?;
         Ok(resp.bytes().await?)
     }

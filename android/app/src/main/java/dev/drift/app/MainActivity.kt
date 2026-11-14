@@ -12,6 +12,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.drift.app.feed.FeedScreen
 import dev.drift.app.feed.FeedViewModel
+import dev.drift.app.feed.HOME
 import dev.drift.app.ui.DriftTheme
 
 class MainActivity : ComponentActivity() {
@@ -19,9 +20,10 @@ class MainActivity : ComponentActivity() {
     private val vm: FeedViewModel by viewModels {
         viewModelFactory {
             initializer {
-                // Without Reddit API access, start on the built-in demo feed (r/demo).
-                val start = if (BuildConfig.REDDIT_CLIENT_ID.isBlank()) "demo" else "EarthPorn"
+                // Start on Home when it's set up, otherwise Reddit's front page.
+                // (Without API access both come from Reddit's public RSS.)
                 val app = application as DriftApp
+                val start = if (app.settings.settings.value.hasHome) HOME else ""
                 FeedViewModel(app.core, app.settings, start)
             }
         }

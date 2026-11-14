@@ -16,6 +16,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,7 +29,12 @@ import androidx.compose.ui.unit.dp
 
 /** One plain list of settings. Changes apply immediately. */
 @Composable
-fun SettingsScreen(settings: AppSettings, onChange: ((AppSettings) -> AppSettings) -> Unit, onClose: () -> Unit) {
+fun SettingsScreen(
+    settings: AppSettings,
+    limitedMode: Boolean,
+    onChange: ((AppSettings) -> AppSettings) -> Unit,
+    onClose: () -> Unit,
+) {
     BackHandler(onBack = onClose)
     Column(
         Modifier
@@ -40,6 +48,7 @@ fun SettingsScreen(settings: AppSettings, onChange: ((AppSettings) -> AppSetting
             Text("Settings", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
         }
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            HomeSection(settings, limitedMode, onChange)
             Choice(
                 "Theme", settings.theme,
                 listOf(ThemeMode.SYSTEM to "System", ThemeMode.DARK to "Black", ThemeMode.LIGHT to "Light"),
@@ -65,6 +74,49 @@ fun SettingsScreen(settings: AppSettings, onChange: ((AppSettings) -> AppSetting
             Toggle("Blur spoilers", settings.blurSpoilers) { v -> onChange { it.copy(blurSpoilers = v) } }
         }
     }
+}
+
+/** The Home feed: a combined list of subreddits, or the user's private RSS link. */
+@Composable
+private fun HomeSection(settings: AppSettings, limitedMode: Boolean, onChange: ((AppSettings) -> AppSettings) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
+        Text("Home feed", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
+        if (limitedMode) {
+            Text(
+                "Limited mode: no Reddit API access yet, so feeds come from Reddit's public RSS. " +
+                    "About one feed load per minute; no scores or comment counts.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        OutlinedTextField(
+            value = settings.homeSubreddits,
+            onValueChange = { v -> onChange { it.copy(homeSubreddits = v) } },
+            label = { Text("Subreddits") },
+            placeholder = { Text("EarthPorn pics aww") },
+            supportingText = {
+                Text(
+                    if (limitedMode) "Separated by spaces. Loaded one subreddit at a time, taking turns."
+                    else "Separated by spaces. Loaded together as one feed."
+                )
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        )
+        OutlinedTextField(
+            value = settings.privateFeedUrl,
+            onValueChange = { v -> onChange { it.copy(privateFeedUrl = v.trim()) } },
+            label = { Text("Or: your private Reddit RSS link") },
+            placeholder = { Text("https://www.reddit.com/.rss?feed=…&user=…") },
+            supportingText = {
+                Text("From reddit.com/prefs/feeds (\"your front page\"). Used instead of the list above. Kept only on this phone; treat it like a password.")
+            },
+            singleLine = true,
+            visualTransformation = if (settings.privateFeedUrl.isEmpty()) VisualTransformation.None else PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        )
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable

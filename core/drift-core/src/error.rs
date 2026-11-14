@@ -21,6 +21,8 @@ pub enum CoreError {
     NoSubreddit,
     #[error("that doesn't contain a link")]
     NoLink,
+    #[error("Reddit didn't return a feed for that (combined subreddit feeds need API access)")]
+    NotAFeed,
 }
 
 impl From<reqwest::Error> for CoreError {

@@ -21,7 +21,21 @@ data class AppSettings(
     /** Off: NSFW media is blurred and the random button skips NSFW subreddits. */
     val showNsfw: Boolean = false,
     val blurSpoilers: Boolean = true,
-)
+    /** Subreddits combined into the Home feed, e.g. "EarthPorn pics aww". */
+    val homeSubreddits: String = "",
+    /** Private Reddit RSS link for the user's own front page (stays on device). */
+    val privateFeedUrl: String = "",
+) {
+    /** "a+b+c" for a combined feed, or "" when no subreddits are set. */
+    val homeMulti: String
+        get() = homeSubreddits.split(' ', ',', '\n', '+')
+            .map { it.trim().removePrefix("r/").removePrefix("/r/") }
+            .filter { it.isNotEmpty() && it.all { c -> c.isLetterOrDigit() || c == '_' } }
+            .distinctBy { it.lowercase() }
+            .joinToString("+")
+
+    val hasHome: Boolean get() = privateFeedUrl.isNotBlank() || homeMulti.isNotEmpty()
+}
 
 /**
  * Small on-device preferences: settings, recently visited subreddits and
@@ -51,6 +65,8 @@ class SettingsStore(context: Context) {
             .putString("quality", s.quality.name)
             .putBoolean("nsfw", s.showNsfw)
             .putBoolean("blur_spoilers", s.blurSpoilers)
+            .putString("home_subreddits", s.homeSubreddits)
+            .putString("private_feed_url", s.privateFeedUrl)
             .apply()
     }
 
@@ -77,6 +93,8 @@ class SettingsStore(context: Context) {
         quality = enumOr(prefs.getString("quality", null), Quality.HIGHEST),
         showNsfw = prefs.getBoolean("nsfw", false),
         blurSpoilers = prefs.getBoolean("blur_spoilers", true),
+        homeSubreddits = prefs.getString("home_subreddits", "").orEmpty(),
+        privateFeedUrl = prefs.getString("private_feed_url", "").orEmpty(),
     )
 
     private inline fun <reified T : Enum<T>> enumOr(name: String?, default: T): T =

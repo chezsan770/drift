@@ -23,6 +23,21 @@ Personal, non-commercial project. Not distributed on any app store.
   (`https://oauth.reddit.com/grants/installed_client`). The client id is kept in
   a local, untracked file and never committed.
 
+### Limited mode (no client id yet)
+
+Until API access is approved, feeds come from Reddit's public RSS/Atom feeds,
+which Reddit publishes for feed readers:
+
+- Read-only; no scores, comment counts or NSFW flags; galleries appear as links.
+- Reddit allows roughly **one feed request per minute** this way. The core reads
+  `x-ratelimit-*` headers and refuses further requests locally until the window
+  resets (the app shows a countdown and loads automatically), so it never adds
+  load beyond what Reddit permits.
+- Combined `a+b` feeds aren't served over RSS, so "Home" takes turns through the
+  configured subreddits, one request per page. A user's own private feed link
+  (reddit.com/prefs/feeds) can be used instead; it is stored only on the device.
+- Once a client id is configured, everything switches to the OAuth API.
+
 ## Architecture
 
 | Part | Tech |

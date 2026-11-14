@@ -39,6 +39,12 @@ import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import androidx.media3.ui.compose.modifiers.resizeWithContentScale
 import androidx.media3.ui.compose.state.rememberPresentationState
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import dev.drift.app.media.FeedPlayer
 import dev.drift.app.settings.Layout
 import dev.drift.core.Media
@@ -71,10 +77,11 @@ fun PostItem(
     isActiveVideo: Boolean,
     feedPlayer: FeedPlayer,
     blur: String?,
+    highQuality: Boolean,
     cb: PostCallbacks,
 ) {
     when (layout) {
-        Layout.CARD -> PostCard(post, isActiveVideo, feedPlayer, blur, cb)
+        Layout.CARD -> PostCard(post, isActiveVideo, feedPlayer, blur, highQuality, cb)
         Layout.COMPACT -> CompactPost(post, blur, cb)
     }
 }
@@ -97,7 +104,7 @@ private fun Modifier.tapAndHold(onTap: () -> Unit, onHold: () -> Unit) =
 
 /** Title, media, one quiet metadata line. Nothing else. */
 @Composable
-private fun PostCard(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer, blur: String?, cb: PostCallbacks) {
+private fun PostCard(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer, blur: String?, highQuality: Boolean, cb: PostCallbacks) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -110,7 +117,7 @@ private fun PostCard(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(horizontal = Side),
         )
-        CardMedia(post, isActiveVideo && blur == null, feedPlayer, blur, cb)
+        CardMedia(post, isActiveVideo && blur == null, feedPlayer, blur, highQuality, cb)
         MetaLine(post, Modifier.padding(horizontal = Side).padding(top = 8.dp))
     }
 }
@@ -119,8 +126,12 @@ private fun PostCard(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer,
 private fun MetaLine(post: Post, modifier: Modifier = Modifier) {
     Text(
         buildString {
-            if (post.subreddit.isEmpty()) append("${post.domain} · shared link")
-            else append("r/${post.subreddit} · ${post.ageText} · ↑ ${post.scoreText} · ${post.commentsText} comments")
+            when {
+                post.subreddit.isEmpty() -> append("${post.domain} · shared link")
+                // RSS (limited mode) has no scores or comment counts.
+                post.scoreText.isEmpty() -> append("r/${post.subreddit} · ${post.ageText} · u/${post.author}")
+                else -> append("r/${post.subreddit} · ${post.ageText} · ↑ ${post.scoreText} · ${post.commentsText} comments")
+            }
             if (post.isNsfw) append(" · NSFW")
             if (post.isSpoiler) append(" · spoiler")
         },
@@ -133,10 +144,33 @@ private fun MetaLine(post: Post, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun CardMedia(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer, blur: String?, cb: PostCallbacks) {
+private fun CardMedia(post: Post, isActiveVideo: Boolean, feedPlayer: FeedPlayer, blur: String?, highQuality: Boolean, cb: PostCallbacks) {
     val hold = { cb.onLongPress(post) }
     val blurMod = if (blur != null) Modifier.blur(40.dp) else Modifier
     when (val media = post.media) {
+        // Size unknown up front (RSS feeds, links): the card takes its shape
+        // from the image once loaded. With "Highest" quality the original
+        // loads, showing the small preview until it arrives.
+        is Media.Image if media.width == 0u || media.height == 0u -> {
+            var ratio by remember(media.url) { mutableStateOf<Float?>(null) }
+            val placeholder = media.preview?.takeIf { highQuality }?.let { rememberAsyncImagePainter(it) }
+            MediaFrame(ratio) {
+                AsyncImage(
+                    model = if (highQuality) media.url else media.preview ?: media.url,
+                    contentDescription = null,
+                    placeholder = placeholder,
+                    contentScale = if (ratio != null) ContentScale.Crop else ContentScale.Fit,
+                    onSuccess = { s: AsyncImagePainter.State.Success ->
+                        val size = s.painter.intrinsicSize
+                        if (size.width > 0f && size.height > 0f) ratio = size.width / size.height
+                    },
+                    modifier = Modifier.fillMaxSize().then(blurMod)
+                        .tapAndHold(onTap = primaryTap(post, blur, cb), onHold = hold),
+                )
+                BlurLabel(blur)
+            }
+        }
+
         is Media.Text -> if (media.body.isNotBlank()) {
             Text(
                 media.body,
@@ -269,8 +303,12 @@ private fun BoxScope.InlineVideo(key: String, preview: String?, isActive: Boolea
  * jumps when images arrive. Very tall images are capped and cropped.
  */
 @Composable
-private fun MediaFrame(width: UInt, height: UInt, content: @Composable BoxScope.() -> Unit) {
-    val ratio = if (width > 0u && height > 0u) width.toFloat() / height.toFloat() else 16f / 9f
+private fun MediaFrame(width: UInt, height: UInt, content: @Composable BoxScope.() -> Unit) =
+    MediaFrame(if (width > 0u && height > 0u) width.toFloat() / height.toFloat() else null, content)
+
+@Composable
+private fun MediaFrame(ratio: Float?, content: @Composable BoxScope.() -> Unit) {
+    val ratio = ratio ?: (16f / 9f)
     Box(
         Modifier
             .padding(top = 10.dp)
