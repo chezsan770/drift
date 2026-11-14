@@ -1,0 +1,136 @@
+{
+  "kind": "Listing",
+  "data": {
+    "after": "t3_next",
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "img1", "title": "Fog over the valley", "subreddit": "EarthPorn", "author": "alice",
+          "score": 12345, "num_comments": 230, "created_utc": 1000.0,
+          "permalink": "/r/EarthPorn/comments/img1/fog/", "url": "https://i.redd.it/fog.jpeg",
+          "domain": "i.redd.it", "over_18": false, "spoiler": false, "stickied": false, "is_self": false,
+          "selftext": "", "thumbnail": "https://b.thumbs.redditmedia.com/t.jpg", "post_hint": "image",
+          "is_video": false,
+          "preview": {
+            "images": [{
+              "source": {"url": "https://preview.redd.it/fog.jpeg?width=4000&amp;s=abc", "width": 4000, "height": 3000},
+              "resolutions": [
+                {"url": "https://preview.redd.it/fog.jpeg?width=640&s=1", "width": 640, "height": 480},
+                {"url": "https://preview.redd.it/fog.jpeg?width=1080&s=2", "width": 1080, "height": 810},
+                {"url": "https://preview.redd.it/fog.jpeg?width=2160&s=3", "width": 2160, "height": 1620}
+              ],
+              "variants": {}
+            }]
+          },
+          "secure_media": null, "media": null
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "gal1", "title": "Gallery", "subreddit": "pics", "author": "bob",
+          "score": 5, "num_comments": 1, "created_utc": 1000.0,
+          "permalink": "/r/pics/comments/gal1/g/", "url": "https://www.reddit.com/gallery/gal1",
+          "domain": "reddit.com", "is_self": false, "is_gallery": true,
+          "gallery_data": {"items": [
+            {"media_id": "m2", "caption": "second first"},
+            {"media_id": "m1", "caption": ""},
+            {"media_id": "mbad"},
+            {"media_id": "m3"}
+          ]},
+          "media_metadata": {
+            "m1": {"status": "valid", "e": "Image", "m": "image/jpg", "s": {"u": "https://preview.redd.it/m1.jpg?width=3000&amp;s=x", "x": 3000, "y": 2000}},
+            "m2": {"status": "valid", "e": "Image", "m": "image/png", "s": {"u": "https://preview.redd.it/m2.png?width=1200&s=y", "x": 1200, "y": 1600}},
+            "mbad": {"status": "unprocessed"},
+            "m3": {"status": "valid", "e": "AnimatedImage", "m": "image/gif", "s": {"gif": "https://i.redd.it/m3.gif", "mp4": "https://preview.redd.it/m3.gif?format=mp4&s=z", "x": 480, "y": 270}}
+          }
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "vid1", "title": "Video", "subreddit": "nextfuckinglevel", "author": "carol",
+          "score": 1250000, "num_comments": 9999, "created_utc": 1000.0,
+          "permalink": "/r/nextfuckinglevel/comments/vid1/v/", "url": "https://v.redd.it/abc123",
+          "domain": "v.redd.it", "is_self": false, "is_video": true, "post_hint": "hosted:video",
+          "preview": {"images": [{"source": {"url": "https://external-preview.redd.it/v.png", "width": 1920, "height": 1080}, "resolutions": [], "variants": {}}]},
+          "secure_media": {"reddit_video": {
+            "hls_url": "https://v.redd.it/abc123/HLSPlaylist.m3u8?a=1",
+            "dash_url": "https://v.redd.it/abc123/DASHPlaylist.mpd?a=1",
+            "fallback_url": "https://v.redd.it/abc123/CMAF_1080.mp4?source=fallback",
+            "width": 1920, "height": 1080, "has_audio": true, "is_gif": false
+          }}
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "gif1", "title": "Uploaded gif", "subreddit": "gifs", "author": "dan",
+          "score": 10, "num_comments": 0, "created_utc": 1000.0,
+          "permalink": "/r/gifs/comments/gif1/x/", "url": "https://i.redd.it/loop.gif",
+          "domain": "i.redd.it", "is_self": false, "post_hint": "image",
+          "preview": {"images": [{
+            "source": {"url": "https://preview.redd.it/loop.gif?s=1", "width": 500, "height": 500},
+            "resolutions": [],
+            "variants": {
+              "gif": {"source": {"url": "https://preview.redd.it/loop.gif?format=png8&s=2", "width": 500, "height": 500}},
+              "mp4": {"source": {"url": "https://preview.redd.it/loop.gif?format=mp4&amp;s=3", "width": 500, "height": 500}}
+            }
+          }]}
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "imgur1", "title": "Imgur gifv", "subreddit": "gifs", "author": "erin",
+          "score": 1, "num_comments": 0, "created_utc": 1000.0,
+          "permalink": "/r/gifs/comments/imgur1/x/", "url": "https://i.imgur.com/Zx9.gifv",
+          "domain": "i.imgur.com", "is_self": false
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "xp1", "title": "Crosspost", "subreddit": "aww", "author": "frank",
+          "score": 3, "num_comments": 0, "created_utc": 1000.0,
+          "permalink": "/r/aww/comments/xp1/x/", "url": "/r/pics/comments/img9/",
+          "domain": "self.pics", "is_self": false,
+          "crosspost_parent_list": [{
+            "id": "img9", "title": "orig", "subreddit": "pics", "url": "https://i.redd.it/orig.png",
+            "domain": "i.redd.it", "is_self": false, "post_hint": "image",
+            "preview": {"images": [{"source": {"url": "https://preview.redd.it/orig.png", "width": 800, "height": 600}, "resolutions": [], "variants": {}}]}
+          }]
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "yt1", "title": "YouTube", "subreddit": "videos", "author": "gina",
+          "score": 7, "num_comments": 2, "created_utc": 1000.0,
+          "permalink": "/r/videos/comments/yt1/x/", "url": "https://www.youtube.com/watch?v=abc",
+          "domain": "youtube.com", "is_self": false, "post_hint": "rich:video",
+          "secure_media": {"type": "youtube.com", "oembed": {"provider_name": "YouTube", "thumbnail_url": "https://i.ytimg.com/vi/abc/hqdefault.jpg"}}
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "self1", "title": "A question", "subreddit": "AskReddit", "author": "hal",
+          "score": -2, "num_comments": 0, "created_utc": 1000.0,
+          "permalink": "/r/AskReddit/comments/self1/x/", "url": "https://www.reddit.com/r/AskReddit/comments/self1/x/",
+          "domain": "self.AskReddit", "is_self": true, "selftext": "body **text**", "thumbnail": "self"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "link1", "title": "Article", "subreddit": "news", "author": "ivy",
+          "score": 100, "num_comments": 50, "created_utc": 1000.0,
+          "permalink": "/r/news/comments/link1/x/", "url": "https://news.example.com/story",
+          "domain": "news.example.com", "is_self": false, "post_hint": "link", "thumbnail": "default"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["drift-core"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+# Not stripped here: uniffi-bindgen reads its metadata from the symbol
+# table. AGP strips the .so (llvm-strip) when packaging the APK.
+strip = false
+
+# Fast-to-build profile used by Gradle debug builds.
+[profile.android-dev]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true
