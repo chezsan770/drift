@@ -8,9 +8,12 @@ import dev.drift.core.DriftCore
 import dev.drift.core.Post
 import dev.drift.core.Sort
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -23,14 +26,25 @@ data class FeedState(
     val loading: Boolean = false,
     val endReached: Boolean = false,
     val rolling: Boolean = false,
+    val resolvingLink: Boolean = false,
     val error: String? = null,
 )
+
+/** One-off UI events. */
+sealed interface FeedEvent {
+    /** Scroll to the top once [postId] is the first post in the list. */
+    data class ScrollToPost(val postId: String) : FeedEvent
+    data class Message(val text: String) : FeedEvent
+}
 
 /** Thin state holder: every decision about data lives in the Rust core. */
 class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : ViewModel() {
 
     private val _state = MutableStateFlow(FeedState(subreddit = initialSubreddit))
     val state: StateFlow<FeedState> = _state.asStateFlow()
+
+    private val _events = Channel<FeedEvent>(Channel.BUFFERED)
+    val events: Flow<FeedEvent> = _events.receiveAsFlow()
 
     private var loadJob: Job? = null
 
@@ -69,8 +83,36 @@ class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : Vie
                         loading = false,
                     )
                 }
+                upgradeLinks(page.posts)
             } catch (e: CoreException) {
                 _state.update { it.copy(loading = false, error = e.message ?: "Something went wrong") }
+            }
+        }
+    }
+
+    /** Swap link cards from media hosts (Streamable, Redgifs, Imgur...) for
+     *  their resolved image/video once the core has looked them up. */
+    private fun upgradeLinks(posts: List<Post>) {
+        viewModelScope.launch {
+            val upgraded = core.upgradeLinks(posts).associateBy { it.id }
+            if (upgraded.isEmpty()) return@launch
+            _state.update { cur -> cur.copy(posts = cur.posts.map { upgraded[it.id] ?: it }) }
+        }
+    }
+
+    /** A link shared into the app or pasted: resolve it and put it on top. */
+    fun addLink(text: String) {
+        _state.update { it.copy(resolvingLink = true) }
+        viewModelScope.launch {
+            try {
+                val post = core.linkPost(text)
+                _state.update { cur ->
+                    cur.copy(posts = listOf(post) + cur.posts.filter { it.id != post.id }, resolvingLink = false)
+                }
+                _events.send(FeedEvent.ScrollToPost(post.id))
+            } catch (e: CoreException) {
+                _state.update { it.copy(resolvingLink = false) }
+                _events.send(FeedEvent.Message(e.message ?: "Couldn't open that link"))
             }
         }
     }
@@ -83,7 +125,8 @@ class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : Vie
                 val name = core.randomSubreddit(allowNsfw = false)
                 open(name)
             } catch (e: CoreException) {
-                _state.update { it.copy(rolling = false, error = e.message ?: "Couldn't find a subreddit") }
+                _state.update { it.copy(rolling = false) }
+                _events.send(FeedEvent.Message(e.message ?: "Couldn't find a subreddit"))
             }
         }
     }

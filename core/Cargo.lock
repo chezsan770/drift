@@ -336,6 +336,7 @@ name = "drift-core"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "futures-util",
  "pretty_assertions",
  "rand 0.9.5",
  "reqwest",

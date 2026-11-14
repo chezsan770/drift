@@ -2,8 +2,8 @@
 //! configured, anonymous `.json` endpoints otherwise.
 
 use crate::error::CoreError;
-use crate::model::{CoreConfig, Media};
-use crate::{media, raw};
+use crate::model::CoreConfig;
+use crate::raw;
 use reqwest::header::{HeaderMap, CONTENT_TYPE};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
@@ -24,6 +24,7 @@ pub struct Api {
     http: Client,
     cfg: CoreConfig,
     token: Mutex<Option<Token>>,
+    redgifs_token: Mutex<Option<Token>>,
 }
 
 #[derive(Deserialize)]
@@ -43,7 +44,7 @@ impl Api {
             .brotli(true)
             .build()
             .expect("static client config is valid");
-        Self { http, cfg, token: Mutex::new(None) }
+        Self { http, cfg, token: Mutex::new(None), redgifs_token: Mutex::new(None) }
     }
 
     async fn bearer(&self, client_id: &str) -> Result<String, CoreError> {
@@ -94,69 +95,45 @@ impl Api {
         Ok(about.data)
     }
 
-    /// Network fallback for links `media::classify_url` couldn't place:
-    /// sniff the Content-Type, then look for OpenGraph media in HTML.
-    pub async fn resolve_remote(&self, url: &str) -> Result<Media, CoreError> {
-        let link = || Media::Link { url: url.to_string(), thumbnail: None };
+    /// The shared client, for requests to non-Reddit hosts (link resolving).
+    pub fn http(&self) -> &Client {
+        &self.http
+    }
 
-        let resp = self.http.get(url).header("Range", "bytes=0-262143").send().await?;
-        if !resp.status().is_success() {
-            return Ok(link());
-        }
-        let ctype = content_type(resp.headers());
-        if ctype.starts_with("image/") {
-            return Ok(Media::Image { url: url.to_string(), width: 0, height: 0, preview: None });
-        }
-        if ctype.starts_with("video/") || ctype.contains("mpegurl") {
-            let hls = ctype.contains("mpegurl");
-            return Ok(Media::Video {
-                hls_url: hls.then(|| url.to_string()),
-                dash_url: None,
-                mp4_url: (!hls).then(|| url.to_string()),
-                width: 0,
-                height: 0,
-                has_audio: true,
-                preview: None,
-            });
-        }
-        if !ctype.contains("html") {
-            return Ok(link());
-        }
-        let html = String::from_utf8_lossy(&resp.bytes().await?).into_owned();
-        let image = media::find_meta(&html, &["og:image", "twitter:image"]);
-        if let Some(v) = media::find_meta(
-            &html,
-            &["og:video:secure_url", "og:video:url", "og:video", "twitter:player:stream"],
-        ) {
-            if let Some(m @ (Media::Video { .. } | Media::Gif { .. })) = media::classify_url(&v, None) {
-                return Ok(with_preview(m, image));
+    /// Short-lived anonymous token for the Redgifs API, cached in memory.
+    pub async fn redgifs_token(&self, force_refresh: bool) -> Result<String, CoreError> {
+        let mut guard = self.redgifs_token.lock().await;
+        if !force_refresh {
+            if let Some(t) = guard.as_ref() {
+                if t.expires_at > Instant::now() {
+                    return Ok(t.access.clone());
+                }
             }
         }
-        if let Some(img) = image {
-            return Ok(Media::Link { url: url.to_string(), thumbnail: Some(img) });
+        #[derive(Deserialize)]
+        struct Temp {
+            token: String,
         }
-        Ok(link())
+        let resp = self.http.get("https://api.redgifs.com/v2/auth/temporary").send().await?;
+        check_status(&resp)?;
+        let t: Temp = serde_json::from_slice(&resp.bytes().await?)?;
+        *guard = Some(Token {
+            access: t.token.clone(),
+            // Tokens last ~24h; refresh well before that.
+            expires_at: Instant::now() + Duration::from_secs(12 * 3600),
+        });
+        Ok(t.token)
     }
 }
 
-fn with_preview(m: Media, img: Option<String>) -> Media {
-    match m {
-        Media::Video { hls_url, dash_url, mp4_url, width, height, has_audio, .. } => {
-            Media::Video { hls_url, dash_url, mp4_url, width, height, has_audio, preview: img }
-        }
-        Media::Gif { mp4_url, width, height, .. } => Media::Gif { mp4_url, width, height, preview: img },
-        other => other,
-    }
-}
-
-fn content_type(h: &HeaderMap) -> String {
+pub(crate) fn content_type(h: &HeaderMap) -> String {
     h.get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_ascii_lowercase()
 }
 
-fn check_status(resp: &reqwest::Response) -> Result<(), CoreError> {
+pub(crate) fn check_status(resp: &reqwest::Response) -> Result<(), CoreError> {
     let s = resp.status();
     if s.is_success() {
         return Ok(());

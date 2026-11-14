@@ -35,8 +35,20 @@ async fn main() {
         Ok(s) => println!("random: r/{s}"),
         Err(e) => println!("random error: {e}"),
     }
-    match core.resolve_link("https://i.imgur.com/abc.gifv".into()).await {
-        Ok(m) => println!("link: {m:?}"),
-        Err(e) => println!("link error: {e}"),
+    let links = std::env::args().skip(2).collect::<Vec<_>>();
+    let defaults = [
+        "Check this out https://giphy.com/gifs/3o7aD2saalBwwftBIY",
+        "https://test-videos.co.uk/vids/jellyfish/mp4/h264/1080/Jellyfish_1080_10s_1MB.mp4",
+        "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+        "https://github.com/chezsan770/drift",
+        "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1080",
+    ];
+    let list: Vec<String> = if links.is_empty() { defaults.iter().map(|s| s.to_string()).collect() } else { links };
+    for text in list {
+        let t = std::time::Instant::now();
+        match core.link_post(text.clone()).await {
+            Ok(p) => println!("link ({:?}) {:?}\n    title={:?}\n    media={:?}", t.elapsed(), text, p.title, p.media),
+            Err(e) => println!("link error {text:?}: {e}"),
+        }
     }
 }

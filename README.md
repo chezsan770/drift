@@ -46,6 +46,11 @@ The Rust core picks the highest-quality source for every post: original
   videos continue from the feed position with sound; swipe down to close.
 - **Prefetch:** the Rust core picks which images to download ahead based on
   scroll speed (`prefetch_urls`).
+- **Links from anywhere:** share a link to Drift from any app, or paste it in
+  the "Go to…" dialog. Direct image/video files, HLS/DASH, Imgur, Giphy,
+  Streamable, Redgifs, v.redd.it and Reddit post links resolve to playable
+  media; other pages fall back to their OpenGraph image/video. Link posts from
+  media hosts inside a feed are upgraded in place.
 - **Demo feed:** open `r/demo` (the default when no client id is configured) for
   real high-res test media that doesn't need Reddit API access.
 

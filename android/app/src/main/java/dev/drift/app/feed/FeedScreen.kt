@@ -51,6 +51,11 @@ import kotlinx.coroutines.flow.filter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import dev.drift.core.extractUrl
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +71,8 @@ import dev.drift.app.viewer.ViewerRequest
 import dev.drift.core.prefetchUrls
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.withFrameNanos
 import kotlin.math.abs
 
 private val sortLabels = listOf(
@@ -85,6 +92,24 @@ fun FeedScreen(vm: FeedViewModel) {
     var goToDialog by remember { mutableStateOf(false) }
     var viewer by remember { mutableStateOf<ViewerRequest?>(null) }
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+
+    LaunchedEffect(vm) {
+        vm.events.collect { e ->
+            when (e) {
+                // The list keeps its current first item anchored when a post is
+                // inserted above it, so wait until the new post is laid out at
+                // index 0 and only then scroll to it.
+                is FeedEvent.ScrollToPost -> {
+                    snapshotFlow { listState.layoutInfo.visibleItemsInfo.firstOrNull() to posts.firstOrNull()?.id }
+                        .first { (_, firstId) -> firstId == e.postId }
+                    withFrameNanos { }
+                    listState.animateScrollToItem(0)
+                }
+                is FeedEvent.Message -> snackbar.showSnackbar(e.text)
+            }
+        }
+    }
 
     // One player for the whole feed; it follows the most visible video card.
     val feedPlayer = remember { FeedPlayer(context) }
@@ -156,7 +181,9 @@ fun FeedScreen(vm: FeedViewModel) {
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+          Column {
             TopAppBar(
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -202,6 +229,11 @@ fun FeedScreen(vm: FeedViewModel) {
                     }
                 },
             )
+            // Thin line under the bar while a shared/pasted link resolves.
+            if (state.resolvingLink) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+            }
+          }
         },
     ) { padding ->
         LazyColumn(
@@ -238,9 +270,12 @@ fun FeedScreen(vm: FeedViewModel) {
     }
 
     if (goToDialog) {
-        GoToSubredditDialog(
+        GoToDialog(
             onDismiss = { goToDialog = false },
-            onGo = { goToDialog = false; vm.open(it) },
+            onGo = { text ->
+                goToDialog = false
+                if (extractUrl(text) != null) vm.addLink(text) else vm.open(text)
+            },
         )
     }
 }
@@ -307,17 +342,22 @@ private fun FeedFooter(loading: Boolean, endReached: Boolean, error: String?, on
 }
 
 @Composable
-private fun GoToSubredditDialog(onDismiss: () -> Unit, onGo: (String) -> Unit) {
+private fun GoToDialog(onDismiss: () -> Unit, onGo: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
+    val isLink = text.trimStart().startsWith("http")
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Go to subreddit") },
+        title = { Text("Go to…") },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 singleLine = true,
-                prefix = { Text("r/") },
+                prefix = if (isLink || text.isEmpty()) null else ({ Text("r/") }),
+                placeholder = { Text("subreddit, or paste a link") },
+                supportingText = {
+                    Text(if (isLink) "Opens the image or video from this link" else "e.g. EarthPorn, or demo")
+                },
             )
         },
         confirmButton = {

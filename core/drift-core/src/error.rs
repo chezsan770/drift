@@ -19,6 +19,8 @@ pub enum CoreError {
     Blocked,
     #[error("no usable subreddit found")]
     NoSubreddit,
+    #[error("that doesn't contain a link")]
+    NoLink,
 }
 
 impl From<reqwest::Error> for CoreError {

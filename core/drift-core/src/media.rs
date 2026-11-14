@@ -185,6 +185,30 @@ pub fn classify_url(raw: &str, preview: Option<&PreviewImage>) -> Option<Media> 
     let (w, h) = preview.map(|p| (p.source.width, p.source.height)).unwrap_or((0, 0));
     let card_preview = preview.map(card_sized);
 
+    // Giphy: page, media CDN and i.giphy.com links all map to one MP4.
+    if let Some(id) = giphy_id(&u, &host) {
+        return Some(Media::Gif {
+            mp4_url: format!("https://media.giphy.com/media/{id}/giphy.mp4"),
+            width: w,
+            height: h,
+            preview: card_preview.or_else(|| Some(format!("https://media.giphy.com/media/{id}/giphy_s.gif"))),
+        });
+    }
+
+    // v.redd.it/{id}: Reddit's own player playlists (video + audio).
+    if host == "v.redd.it" {
+        let id = u.path_segments()?.find(|s| !s.is_empty())?;
+        return Some(Media::Video {
+            hls_url: Some(format!("https://v.redd.it/{id}/HLSPlaylist.m3u8")),
+            dash_url: Some(format!("https://v.redd.it/{id}/DASHPlaylist.mpd")),
+            mp4_url: None,
+            width: w,
+            height: h,
+            has_audio: true,
+            preview: card_preview,
+        });
+    }
+
     // imgur: .gifv is an HTML page wrapping an MP4.
     if host.ends_with("imgur.com") && ext.as_deref() == Some("gifv") {
         let mp4 = raw.trim_end_matches(".gifv").to_string() + ".mp4";
@@ -245,10 +269,67 @@ pub fn classify_url(raw: &str, preview: Option<&PreviewImage>) -> Option<Media> 
     }
 }
 
+/// Hosts whose pages are a wrapper around one picture (or an album whose
+/// og:image is its first picture).
+pub fn looks_like_image_host(raw: &str) -> bool {
+    const HOSTS: &[&str] = &["imgur.com", "ibb.co", "imgbb.com", "postimg.cc", "flickr.com", "catbox.moe", "imgbox.com"];
+    url::Url::parse(raw)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_ascii_lowercase()))
+        .is_some_and(|h| HOSTS.iter().any(|x| h == *x || h.ends_with(&format!(".{x}"))))
+}
+
+/// Giphy id from `giphy.com/gifs/{slug}-{id}`, `media*.giphy.com/media/{id}/…`
+/// or `i.giphy.com/{id}.gif`.
+fn giphy_id(u: &url::Url, host: &str) -> Option<String> {
+    if !host.ends_with("giphy.com") {
+        return None;
+    }
+    let segs: Vec<&str> = u.path_segments()?.filter(|s| !s.is_empty()).collect();
+    let id: &str = if host == "giphy.com" {
+        match segs.as_slice() {
+            ["gifs" | "clips" | "embed", slug, ..] => slug.rsplit('-').next()?,
+            _ => return None,
+        }
+    } else if host.starts_with("media") {
+        // media.giphy.com/media/{id}/giphy.gif, optionally with a
+        // `v1.<token>` segment before the id.
+        segs.iter()
+            .skip_while(|s| **s != "media")
+            .skip(1)
+            .find(|s| !s.starts_with("v1."))
+            .copied()?
+    } else if host == "i.giphy.com" {
+        segs.first()?.split('.').next()?
+    } else {
+        return None;
+    };
+    let ok = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric());
+    ok.then(|| id.to_string())
+}
+
+/// Like [`find_meta`] but for text values (titles), entity-decoded.
+pub fn find_meta_text(html: &str, keys: &[&str]) -> Option<String> {
+    find_meta_raw(html, keys, false).map(|s| decode_entities(&s)).filter(|s| !s.trim().is_empty())
+}
+
+fn decode_entities(s: &str) -> String {
+    s.replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
 /// Find `<meta property="og:video" content="...">`-style tags. A tiny
 /// scanner instead of a full HTML parser: we only need a handful of tags
-/// from the document head.
+/// from the document head. Only returns absolute http(s) URLs.
 pub fn find_meta(html: &str, keys: &[&str]) -> Option<String> {
+    find_meta_raw(html, keys, true)
+}
+
+fn find_meta_raw(html: &str, keys: &[&str], urls_only: bool) -> Option<String> {
     let mut cut = html.len().min(256 * 1024);
     while !html.is_char_boundary(cut) {
         cut -= 1;
@@ -269,6 +350,9 @@ pub fn find_meta(html: &str, keys: &[&str]) -> Option<String> {
                 continue;
             }
             if let Some(v) = attr(tag, tag_l, "content") {
+                if !urls_only {
+                    return Some(v);
+                }
                 if v.starts_with("http") {
                     return Some(v.replace("&amp;", "&"));
                 }
@@ -316,6 +400,27 @@ mod tests {
             classify_url("https://youtu.be/dQw4w9WgXcQ", None),
             Some(Media::Embed { .. })
         ));
+        for giphy in [
+            "https://giphy.com/gifs/happy-dance-3o7aD2saalBwwftBIY",
+            "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.gif",
+            "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjEx/3o7aD2saalBwwftBIY/giphy.webp",
+            "https://i.giphy.com/3o7aD2saalBwwftBIY.gif",
+        ] {
+            match classify_url(giphy, None) {
+                Some(Media::Gif { mp4_url, .. }) => {
+                    assert_eq!(mp4_url, "https://media.giphy.com/media/3o7aD2saalBwwftBIY/giphy.mp4", "{giphy}")
+                }
+                other => panic!("{giphy}: {other:?}"),
+            }
+        }
+        match classify_url("https://v.redd.it/abc123", None) {
+            Some(Media::Video { hls_url, .. }) => {
+                assert_eq!(hls_url.as_deref(), Some("https://v.redd.it/abc123/HLSPlaylist.m3u8"))
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(looks_like_image_host("https://imgur.com/a/xyz"));
+        assert!(!looks_like_image_host("https://example.com/a"));
         assert_eq!(classify_url("https://example.com/article", None), None);
         assert_eq!(classify_url("not a url", None), None);
     }

@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
+import androidx.media3.ui.compose.modifiers.resizeWithContentScale
+import androidx.media3.ui.compose.state.rememberPresentationState
 import coil3.compose.AsyncImage
 import dev.drift.app.media.FeedPlayer
 import dev.drift.core.Media
@@ -66,7 +68,8 @@ fun PostCard(
         )
         Text(
             buildString {
-                append("r/${post.subreddit} · ${post.ageText} · ↑ ${post.scoreText} · ${post.commentsText} comments")
+                if (post.subreddit.isEmpty()) append("${post.domain} · shared link")
+                else append("r/${post.subreddit} · ${post.ageText} · ↑ ${post.scoreText} · ${post.commentsText} comments")
                 if (post.isNsfw) append(" · NSFW")
                 if (post.isSpoiler) append(" · spoiler")
             },
@@ -103,10 +106,12 @@ private fun PostMedia(
         }
 
         is Media.Image -> MediaFrame(media.width, media.height) {
+            val knownSize = media.width > 0u && media.height > 0u
             AsyncImage(
                 model = media.preview ?: media.url,
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                // Unknown size (links): show the whole image, never crop it.
+                contentScale = if (knownSize) ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().clickable { onOpenMedia(0) },
             )
         }
@@ -170,11 +175,17 @@ private fun BoxScope.InlineVideo(
     onClick: () -> Unit,
 ) {
     val playing = isActive && feedPlayer.currentKey == key
+    Box(Modifier.matchParentSize().background(Color.Black)) // letterbox bars
     if (playing) {
+        // Size the surface from the stream's real dimensions, so videos from
+        // links (size unknown up front) are letterboxed, never stretched.
+        val presentation = rememberPresentationState(feedPlayer.player)
         PlayerSurface(
             player = feedPlayer.player,
             surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .resizeWithContentScale(ContentScale.Fit, presentation.videoSizeDp),
         )
     }
     AnimatedVisibility(

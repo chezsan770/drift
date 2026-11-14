@@ -106,6 +106,18 @@ fn embeds_text_and_links() {
 }
 
 #[test]
+fn extracts_url_from_shared_text() {
+    use drift_core::extract_url;
+    assert_eq!(
+        extract_url("Look at this (https://streamable.com/abc12), wow".into()).as_deref(),
+        Some("https://streamable.com/abc12")
+    );
+    assert_eq!(extract_url("https://x.y/z".into()).as_deref(), Some("https://x.y/z"));
+    assert_eq!(extract_url("EarthPorn".into()), None);
+    assert_eq!(extract_url("ftp://x.y/z".into()), None);
+}
+
+#[test]
 fn one_bad_post_does_not_fail_the_page() {
     let body = br#"{"data":{"after":null,"children":[
         {"kind":"t3","data":{"id":"ok","title":"fine","url":"https://i.redd.it/a.jpg"}},

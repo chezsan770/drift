@@ -8,6 +8,7 @@ mod demo;
 mod error;
 pub mod prefetch;
 mod format;
+mod links;
 pub mod media;
 mod model;
 mod random;
@@ -87,12 +88,87 @@ impl DriftCore {
 
     /// Resolve any link (pasted, shared or from a post) to playable media.
     pub async fn resolve_link(&self, url: String) -> Result<Media, CoreError> {
-        let url = url.trim().to_string();
-        if let Some(m) = media::classify_url(&url, None) {
-            return Ok(m);
-        }
-        self.api.resolve_remote(&url).await
+        Ok(links::resolve(&self.api, url.trim()).await?.media)
     }
+
+    /// Turn shared/pasted text containing a link into a feed post with the
+    /// link's media resolved (title from the page or provider when found).
+    pub async fn link_post(&self, text: String) -> Result<Post, CoreError> {
+        let url = extract_url(text).ok_or(CoreError::NoLink)?;
+        let r = links::resolve(&self.api, &url).await?;
+        let host = url::Url::parse(&url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+            .unwrap_or_default();
+        Ok(Post {
+            id: format!("link-{:x}", hash(&url)),
+            subreddit: String::new(),
+            author: String::new(),
+            title: r.title.unwrap_or_else(|| format!("Shared from {host}")),
+            permalink: url.clone(),
+            url,
+            domain: host,
+            score_text: String::new(),
+            comments_text: String::new(),
+            age_text: "now".into(),
+            is_nsfw: false,
+            is_spoiler: false,
+            is_stickied: false,
+            media: r.media,
+        })
+    }
+
+    /// Resolve link posts from known media hosts (Streamable, Redgifs,
+    /// Giphy, Imgur albums, ...) into playable media. Returns only the posts
+    /// that changed; runs a few lookups in parallel, each time-limited.
+    pub async fn upgrade_links(&self, posts: Vec<Post>) -> Vec<Post> {
+        use futures_util::stream::{self, StreamExt};
+        let candidates = posts.into_iter().filter(|p| match &p.media {
+            Media::Link { url, .. } => links::worth_upgrading(url),
+            _ => false,
+        });
+        stream::iter(candidates)
+            .map(|mut p| async move {
+                let Media::Link { url, thumbnail } = &p.media else { return None };
+                let fut = links::resolve(&self.api, url);
+                let r = tokio::time::timeout(std::time::Duration::from_secs(8), fut).await.ok()?.ok()?;
+                let media = match r.media {
+                    Media::Link { .. } => return None,
+                    // Keep Reddit's preview if the provider gave none.
+                    Media::Video { hls_url, dash_url, mp4_url, width, height, has_audio, preview } => Media::Video {
+                        hls_url, dash_url, mp4_url, width, height, has_audio,
+                        preview: preview.or_else(|| thumbnail.clone()),
+                    },
+                    Media::Gif { mp4_url, width, height, preview } => {
+                        Media::Gif { mp4_url, width, height, preview: preview.or_else(|| thumbnail.clone()) }
+                    }
+                    other => other,
+                };
+                p.media = media;
+                Some(p)
+            })
+            .buffer_unordered(6)
+            .filter_map(|x| async move { x })
+            .collect()
+            .await
+    }
+}
+
+/// First http(s) URL in a piece of text (share intents often send
+/// "Some title https://..."). Returns `None` if there is none.
+#[uniffi::export]
+pub fn extract_url(text: String) -> Option<String> {
+    text.split_whitespace()
+        .map(|w| w.trim_matches(|c: char| matches!(c, '<' | '>' | '"' | '\'' | '(' | ')' | ',')))
+        .find(|w| (w.starts_with("https://") || w.starts_with("http://")) && url::Url::parse(w).is_ok())
+        .map(str::to_owned)
+}
+
+fn hash(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish()
 }
 
 /// Parse a listing body into display-ready posts. Fast path is a single
