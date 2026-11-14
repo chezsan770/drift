@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.drift.app.feed.FeedScreen
@@ -19,7 +21,8 @@ class MainActivity : ComponentActivity() {
             initializer {
                 // Without Reddit API access, start on the built-in demo feed (r/demo).
                 val start = if (BuildConfig.REDDIT_CLIENT_ID.isBlank()) "demo" else "EarthPorn"
-                FeedViewModel((application as DriftApp).core, start)
+                val app = application as DriftApp
+                FeedViewModel(app.core, app.settings, start)
             }
         }
     }
@@ -29,8 +32,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Only handle the launch intent once (not again after rotation).
         if (savedInstanceState == null) handleShare(intent)
+        val store = (application as DriftApp).settings
         setContent {
-            DriftTheme { FeedScreen(vm) }
+            val settings by store.settings.collectAsStateWithLifecycle()
+            DriftTheme(settings.theme) { FeedScreen(vm, store) }
         }
     }
 

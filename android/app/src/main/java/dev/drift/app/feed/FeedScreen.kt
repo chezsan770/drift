@@ -56,6 +56,16 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import dev.drift.core.extractUrl
+import dev.drift.core.Post
+import dev.drift.app.media.rememberIsMetered
+import dev.drift.app.media.setHighestQuality
+import dev.drift.app.settings.Autoplay
+import dev.drift.app.settings.Layout
+import dev.drift.app.settings.Quality
+import dev.drift.app.settings.SettingsScreen
+import dev.drift.app.settings.SettingsStore
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
@@ -83,16 +93,38 @@ private val sortLabels = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FeedScreen(vm: FeedViewModel) {
+fun FeedScreen(vm: FeedViewModel, store: SettingsStore) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val settings by store.settings.collectAsStateWithLifecycle()
+    val recent by store.recentSubreddits.collectAsStateWithLifecycle()
     val posts by rememberUpdatedState(state.posts)
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     var sortMenu by remember { mutableStateOf(false) }
-    var goToDialog by remember { mutableStateOf(false) }
+    var subredditSheet by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var actionsFor by remember { mutableStateOf<Post?>(null) }
     var viewer by remember { mutableStateOf<ViewerRequest?>(null) }
     val context = LocalContext.current
+    val uri = LocalUriHandler.current
     val snackbar = remember { SnackbarHostState() }
+
+    // Posts the user tapped to un-blur (NSFW/spoiler), for this feed only.
+    val revealed = remember(state.subreddit) { mutableStateMapOf<String, Boolean>() }
+    val blurOf: (Post) -> String? = { p ->
+        blurReason(p, settings.showNsfw, settings.blurSpoilers, revealed[p.id] == true)
+    }
+    val currentBlurOf by rememberUpdatedState(blurOf)
+
+    // Autoplay setting + network type decide whether the feed plays videos.
+    val metered by rememberIsMetered()
+    val autoplayOn by rememberUpdatedState(
+        settings.layout == Layout.CARD && when (settings.autoplay) {
+            Autoplay.ALWAYS -> true
+            Autoplay.WIFI_ONLY -> !metered
+            Autoplay.NEVER -> false
+        }
+    )
 
     LaunchedEffect(vm) {
         vm.events.collect { e ->
@@ -114,11 +146,30 @@ fun FeedScreen(vm: FeedViewModel) {
     // One player for the whole feed; it follows the most visible video card.
     val feedPlayer = remember { FeedPlayer(context) }
     DisposableEffect(feedPlayer) { onDispose { feedPlayer.release() } }
+
+    val callbacks = remember(feedPlayer, revealed) {
+        PostCallbacks(
+            onOpenMedia = { post, page ->
+                viewer = ViewerRequest.from(post.title, post.media, page, feedPlayer.positionFor(post.id))
+            },
+            onOpenUrl = { runCatching { uri.openUri(it) } },
+            onLongPress = { actionsFor = it },
+            onReveal = { revealed[it.id] = true },
+        )
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { feedPlayer.setPaused(true) }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { feedPlayer.setPaused(viewer != null) }
-    LaunchedEffect(viewer) { feedPlayer.setPaused(viewer != null) }
+    LaunchedEffect(viewer, showSettings) { feedPlayer.setPaused(viewer != null || showSettings) }
+    LaunchedEffect(settings.quality) { feedPlayer.player.setHighestQuality(settings.quality == Quality.HIGHEST) }
 
-    val activeVideoId by remember { derivedStateOf { mostVisibleVideo(listState.layoutInfo) } }
+    val activeVideoId by remember {
+        derivedStateOf {
+            if (!autoplayOn) null
+            else mostVisibleVideo(listState.layoutInfo) { key ->
+                posts.firstOrNull { it.id == key }?.let { currentBlurOf(it) == null } == true
+            }
+        }
+    }
     LaunchedEffect(activeVideoId) {
         val post = posts.firstOrNull { it.id == activeVideoId }
         val playable = post?.media?.playable()
@@ -191,7 +242,7 @@ fun FeedScreen(vm: FeedViewModel) {
                     scrolledContainerColor = MaterialTheme.colorScheme.background,
                 ),
                 title = {
-                    TextButton(onClick = { goToDialog = true }) {
+                    TextButton(onClick = { subredditSheet = true }) {
                         Text(
                             "r/${state.subreddit}  ▾",
                             style = MaterialTheme.typography.titleMedium,
@@ -227,6 +278,9 @@ fun FeedScreen(vm: FeedViewModel) {
                             }
                         }
                     }
+                    TextButton(onClick = { showSettings = true }) {
+                        Text("⋮", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 },
             )
             // Thin line under the bar while a shared/pasted link resolves.
@@ -246,13 +300,13 @@ fun FeedScreen(vm: FeedViewModel) {
                 key = { it.id },
                 contentType = { it.media.kindKey() },
             ) { post ->
-                PostCard(
+                PostItem(
                     post = post,
+                    layout = settings.layout,
                     isActiveVideo = post.id == activeVideoId,
                     feedPlayer = feedPlayer,
-                    onOpenMedia = { page ->
-                        viewer = ViewerRequest.from(post.title, post.media, page, feedPlayer.positionFor(post.id))
-                    },
+                    blur = blurOf(post),
+                    cb = callbacks,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
@@ -266,16 +320,29 @@ fun FeedScreen(vm: FeedViewModel) {
             }
         }
     }
-    viewer?.let { MediaViewer(it, onClose = { viewer = null }) }
+    viewer?.let { MediaViewer(it, settings.quality == Quality.HIGHEST, onClose = { viewer = null }) }
+    if (showSettings) {
+        SettingsScreen(settings, onChange = store::update, onClose = { showSettings = false })
+    }
     }
 
-    if (goToDialog) {
-        GoToDialog(
-            onDismiss = { goToDialog = false },
+    if (subredditSheet) {
+        SubredditSheet(
+            current = state.subreddit,
+            recent = recent,
             onGo = { text ->
-                goToDialog = false
+                subredditSheet = false
                 if (extractUrl(text) != null) vm.addLink(text) else vm.open(text)
             },
+            onDismiss = { subredditSheet = false },
+        )
+    }
+    actionsFor?.let { post ->
+        PostActionsSheet(
+            post = post,
+            onOpenUrl = { runCatching { uri.openUri(it) } },
+            onHide = { vm.hide(post) },
+            onDismiss = { actionsFor = null },
         )
     }
 }
@@ -287,7 +354,7 @@ private const val KIND_GIF = 4
  * The video/GIF card that should be playing: at least 60% visible, and
  * closest to the middle of the screen when several qualify.
  */
-private fun mostVisibleVideo(info: LazyListLayoutInfo): String? {
+private fun mostVisibleVideo(info: LazyListLayoutInfo, canPlay: (String) -> Boolean): String? {
     val top = info.viewportStartOffset
     val bottom = info.viewportEndOffset
     val center = (top + bottom) / 2
@@ -298,6 +365,7 @@ private fun mostVisibleVideo(info: LazyListLayoutInfo): String? {
             val shown = minOf(item.offset + item.size, bottom) - maxOf(item.offset, top)
             item.size > 0 && shown.toFloat() / item.size >= 0.6f
         }
+        .filter { (it.key as? String)?.let(canPlay) == true }
         .minByOrNull { abs(it.offset + it.size / 2 - center) }
         ?.key as? String
 }
@@ -341,28 +409,3 @@ private fun FeedFooter(loading: Boolean, endReached: Boolean, error: String?, on
     }
 }
 
-@Composable
-private fun GoToDialog(onDismiss: () -> Unit, onGo: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-    val isLink = text.trimStart().startsWith("http")
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Go to…") },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                singleLine = true,
-                prefix = if (isLink || text.isEmpty()) null else ({ Text("r/") }),
-                placeholder = { Text("subreddit, or paste a link") },
-                supportingText = {
-                    Text(if (isLink) "Opens the image or video from this link" else "e.g. EarthPorn, or demo")
-                },
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onGo(text) }, enabled = text.isNotBlank()) { Text("Open") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}

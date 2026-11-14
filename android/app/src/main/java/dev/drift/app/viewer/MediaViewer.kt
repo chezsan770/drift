@@ -97,7 +97,7 @@ data class ViewerRequest(
  * swipe down or press back to close. Tap toggles the top/bottom bars.
  */
 @Composable
-fun MediaViewer(request: ViewerRequest, onClose: () -> Unit) {
+fun MediaViewer(request: ViewerRequest, highestQuality: Boolean, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val pager = rememberPagerState(initialPage = request.startPage) { request.pages.size }
     var chrome by remember { mutableStateOf(true) }
@@ -133,6 +133,7 @@ fun MediaViewer(request: ViewerRequest, onClose: () -> Unit) {
                 is ViewerPage.Still -> StillPage(page, onTap = { chrome = !chrome })
                 is ViewerPage.Clip -> ClipPage(
                     page.playable,
+                    highestQuality = highestQuality,
                     isCurrent = pager.currentPage == index,
                     startPositionMs = if (index == request.startPage) request.startPositionMs else 0L,
                 )
@@ -202,10 +203,10 @@ private fun StillPage(page: ViewerPage.Still, onTap: () -> Unit) {
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun ClipPage(playable: Playable, isCurrent: Boolean, startPositionMs: Long) {
+private fun ClipPage(playable: Playable, highestQuality: Boolean, isCurrent: Boolean, startPositionMs: Long) {
     val context = LocalContext.current
     val player = remember(playable) {
-        buildPlayer(context).apply {
+        buildPlayer(context, highestQuality).apply {
             repeatMode = if (playable.loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             setMediaItem(playable.toMediaItem(), startPositionMs)
             prepare()

@@ -54,6 +54,20 @@ The Rust core picks the highest-quality source for every post: original
 - **Demo feed:** open `r/demo` (the default when no client id is configured) for
   real high-res test media that doesn't need Reddit API access.
 
+## UI
+
+Calm and content-first: title, media and one grey metadata line per post.
+
+- **Layouts:** cards (full-width media) or compact (thumbnail on the right).
+- **Settings (⋮):** theme (system / black / light), layout, autoplay
+  (always / Wi-Fi only / never), video quality (highest / data saver), show
+  NSFW, blur spoilers.
+- **NSFW / spoilers:** blurred until tapped (NSFW unless enabled); blurred
+  videos never autoplay; the random button skips NSFW subreddits unless enabled.
+- **Long-press a post:** share, open link, open on Reddit, copy link, hide.
+- **Tap the subreddit name:** type a subreddit or paste a link; recent
+  subreddits are listed.
+
 ## Building
 
 Requirements: Rust (with the `aarch64-linux-android` and `x86_64-linux-android`

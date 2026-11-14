@@ -3,6 +3,7 @@ package dev.drift.app.feed
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.drift.app.settings.SettingsStore
 import dev.drift.core.CoreException
 import dev.drift.core.DriftCore
 import dev.drift.core.Post
@@ -38,7 +39,11 @@ sealed interface FeedEvent {
 }
 
 /** Thin state holder: every decision about data lives in the Rust core. */
-class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : ViewModel() {
+class FeedViewModel(
+    private val core: DriftCore,
+    private val store: SettingsStore,
+    initialSubreddit: String,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(FeedState(subreddit = initialSubreddit))
     val state: StateFlow<FeedState> = _state.asStateFlow()
@@ -54,6 +59,7 @@ class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : Vie
 
     fun open(subreddit: String, sort: Sort = _state.value.sort) {
         val name = subreddit.trim().removePrefix("/").removePrefix("r/")
+        store.rememberSubreddit(name)
         loadJob?.cancel()
         _state.value = FeedState(subreddit = name, sort = sort)
         loadMore()
@@ -77,7 +83,7 @@ class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : Vie
                     if (cur.subreddit != s.subreddit || cur.sort != s.sort) return@update cur
                     val seen = cur.posts.mapTo(HashSet()) { it.id }
                     cur.copy(
-                        posts = cur.posts + page.posts.filter { seen.add(it.id) },
+                        posts = cur.posts + page.posts.filter { !store.isHidden(it.id) && seen.add(it.id) },
                         after = page.after,
                         endReached = page.after == null,
                         loading = false,
@@ -117,12 +123,19 @@ class FeedViewModel(private val core: DriftCore, initialSubreddit: String) : Vie
         }
     }
 
+    /** Remove a post now and keep it hidden in future loads. */
+    fun hide(post: Post) {
+        store.hide(post.id)
+        _state.update { cur -> cur.copy(posts = cur.posts.filter { it.id != post.id }) }
+        viewModelScope.launch { _events.send(FeedEvent.Message("Post hidden")) }
+    }
+
     fun randomSubreddit() {
         if (_state.value.rolling) return
         _state.update { it.copy(rolling = true) }
         viewModelScope.launch {
             try {
-                val name = core.randomSubreddit(allowNsfw = false)
+                val name = core.randomSubreddit(allowNsfw = store.settings.value.showNsfw)
                 open(name)
             } catch (e: CoreException) {
                 _state.update { it.copy(rolling = false) }

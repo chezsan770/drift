@@ -60,15 +60,22 @@ object VideoCache {
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 }
 
-/** ExoPlayer that always takes the highest-bitrate track the device can decode. */
+/**
+ * ExoPlayer with the disk cache. With [highestQuality] it always takes the
+ * highest-bitrate track the device can decode; otherwise quality adapts to
+ * the connection (data saver).
+ */
 @OptIn(UnstableApi::class)
-fun buildPlayer(context: Context): ExoPlayer {
-    val trackSelector = DefaultTrackSelector(context).apply {
-        setParameters(buildUponParameters().setForceHighestSupportedBitrate(true))
-    }
-    return ExoPlayer.Builder(context)
-        .setTrackSelector(trackSelector)
+fun buildPlayer(context: Context, highestQuality: Boolean = true): ExoPlayer =
+    ExoPlayer.Builder(context)
+        .setTrackSelector(DefaultTrackSelector(context))
         .setMediaSourceFactory(DefaultMediaSourceFactory(VideoCache.dataSourceFactory(context)))
+        .build()
+        .apply { setHighestQuality(highestQuality) }
+
+fun Player.setHighestQuality(on: Boolean) {
+    trackSelectionParameters = trackSelectionParameters.buildUpon()
+        .setForceHighestSupportedBitrate(on)
         .build()
 }
 

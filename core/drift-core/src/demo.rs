@@ -178,7 +178,12 @@ pub fn page(now: f64) -> FeedPage {
             Media::Link { url: "https://github.com/chezsan770/drift".into(), thumbnail: None },
         ),
         next("Misty valley", 3_870, 14.0 * h, image(p[4])),
-        next("Desert road", 2_955, 15.0 * h, image(p[5])),
+        {
+            // Marked as a spoiler so blurring can be tried in the demo.
+            let mut spoiler = next("Spoiler test: blurred until tapped", 2_955, 15.0 * h, image(p[5]));
+            spoiler.is_spoiler = true;
+            spoiler
+        },
         next("Snowy ridge", 9_660, 16.0 * h, image(p[9])),
         next("Autumn lake", 4_120, 17.0 * h, image(p[11])),
         next("Night sky over the sea", 6_480, 18.0 * h, image(p[12])),

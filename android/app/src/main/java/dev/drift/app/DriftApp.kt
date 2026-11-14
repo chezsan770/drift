@@ -9,11 +9,14 @@ import coil3.disk.directory
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import dev.drift.app.settings.SettingsStore
 import dev.drift.core.CoreConfig
 import dev.drift.core.DriftCore
 import java.security.SecureRandom
 
 class DriftApp : Application(), SingletonImageLoader.Factory {
+
+    val settings: SettingsStore by lazy { SettingsStore(this) }
 
     /** Single Rust core for the whole process (owns the HTTP pool and caches). */
     val core: DriftCore by lazy {
